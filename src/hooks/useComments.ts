@@ -3,10 +3,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import type { CommentWithAuthor } from '@/types/database'
 
-// Hint FK esplicito: il commento ha author_id → profiles.id
+// Anche qui due FK su author_id (auth.users + profiles), specifichiamo
+// il constraint verso profiles.
 const COMMENT_SELECT = `
   *,
-  author:profiles!comments_author_id_fkey(full_name, department)
+  author:profiles!comments_author_profile_fkey(full_name, department)
 `
 
 export function useComments(taskId: string | undefined) {
@@ -28,7 +29,6 @@ export function useComments(taskId: string | undefined) {
     },
   })
 
-  // Realtime
   useEffect(() => {
     if (!taskId) return
     const channel = supabase

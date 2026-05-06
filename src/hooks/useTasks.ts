@@ -4,12 +4,14 @@ import type { Task, TaskWithRelations } from '@/types/database'
 
 const TASKS_KEY = ['tasks'] as const
 
-// PostgREST richiede hint espliciti sulle FK quando potrebbero esserci
-// più relazioni tra le stesse tabelle. Specifichiamo il nome del constraint.
+// PostgREST embedding hint:
+// - category_id ha una sola FK (verso categories), basta il nome del campo.
+// - author_id ne ha DUE (auth.users e profiles), serve specificare il
+//   constraint esplicito tasks_author_profile_fkey.
 const TASK_SELECT = `
   *,
-  category:categories!tasks_category_id_fkey(name, color_class),
-  author:profiles!tasks_author_id_fkey(full_name, department)
+  category:category_id(name, color_class),
+  author:profiles!tasks_author_profile_fkey(full_name, department)
 `
 
 interface TaskFilters {
