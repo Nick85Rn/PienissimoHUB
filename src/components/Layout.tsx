@@ -11,6 +11,7 @@ import {
 import { useAuth } from '@/context/AuthContext'
 import { cn, initialsOf } from '@/lib/utils'
 import { DEPARTMENT_LABELS } from '@/types/database'
+import { ZohoChat } from './ZohoChat'
 
 export default function Layout() {
   const location = useLocation()
@@ -129,6 +130,8 @@ export default function Layout() {
       <main className="flex-1 overflow-y-auto">
         <Outlet />
       </main>
+
+      <ZohoChat />
     </div>
   )
 }
