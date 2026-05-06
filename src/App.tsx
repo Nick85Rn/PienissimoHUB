@@ -15,7 +15,7 @@ import Settings from '@/pages/Settings'
 const PROFILE_WAIT_MS = 4000
 
 export default function App() {
-  const { session, profile, loading, isAdmin } = useAuth()
+  const { session, profile, loading, isAdmin, isMaster } = useAuth()
 
   // Se siamo loggati ma il profilo non è ancora arrivato, aspettiamo
   // un po' (di solito è istantaneo). Se dopo X secondi non c'è ancora,
@@ -85,9 +85,9 @@ export default function App() {
         <Route
           path="/admin/users"
           element={
-            <AdminGuard isAdmin={isAdmin}>
+            <MasterGuard isMaster={isMaster}>
               <AdminUsers />
-            </AdminGuard>
+            </MasterGuard>
           }
         />
 
@@ -107,6 +107,20 @@ function AdminGuard({
 }) {
   const location = useLocation()
   if (!isAdmin) {
+    return <Navigate to="/dashboard" replace state={{ from: location }} />
+  }
+  return <>{children}</>
+}
+
+function MasterGuard({
+  isMaster,
+  children,
+}: {
+  isMaster: boolean
+  children: React.ReactNode
+}) {
+  const location = useLocation()
+  if (!isMaster) {
     return <Navigate to="/dashboard" replace state={{ from: location }} />
   }
   return <>{children}</>

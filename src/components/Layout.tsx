@@ -16,7 +16,7 @@ import { ZohoChat } from './ZohoChat'
 export default function Layout() {
   const location = useLocation()
   const navigate = useNavigate()
-  const { profile, isAdmin, signOut } = useAuth()
+  const { profile, isAdmin, isMaster, signOut } = useAuth()
 
   const handleLogout = async () => {
     await signOut()
@@ -65,13 +65,15 @@ export default function Layout() {
               >
                 Categorie
               </SidebarLink>
-              <SidebarLink
-                to="/admin/users"
-                icon={<Users size={18} />}
-                active={location.pathname === '/admin/users'}
-              >
-                Utenti
-              </SidebarLink>
+              {isMaster && (
+                <SidebarLink
+                  to="/admin/users"
+                  icon={<Users size={18} />}
+                  active={location.pathname === '/admin/users'}
+                >
+                  Utenti
+                </SidebarLink>
+              )}
             </SidebarSection>
           )}
 
@@ -108,11 +110,13 @@ export default function Layout() {
                   <ShieldCheck size={11} className="text-pienissimo-blue" />
                 )}
                 <p className="text-xs text-slate-500 truncate">
-                  {isAdmin
-                    ? 'Admin'
-                    : profile
-                      ? DEPARTMENT_LABELS[profile.department]
-                      : ''}
+                  {isMaster
+                    ? 'Master'
+                    : isAdmin
+                      ? 'Admin'
+                      : profile
+                        ? DEPARTMENT_LABELS[profile.department]
+                        : ''}
                 </p>
               </div>
             </div>

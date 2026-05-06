@@ -14,16 +14,36 @@ interface AuthState {
   session: Session | null
   profile: Profile | null
   loading: boolean
-  isAdmin: boolean
+  isAdmin: boolean // include master
+  isMaster: boolean
   refresh: () => Promise<void>
   signOut: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthState | null>(null)
 
-// Timeout di sicurezza: dopo questo tempo togliamo lo spinner
-// anche se Supabase non ha risposto, così l'app non resta bloccata.
 const INIT_TIMEOUT_MS = 5000
+
+/**
+ * Self-heal: se Supabase non risponde entro X ms,
+ * cancella i token corrotti dal localStorage e ricarica.
+ * Evita il loop "loading infinito dopo refresh".
+ */
+function purgeSupabaseStorage() {
+  try {
+    const keys: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (k && (k.startsWith('sb-') || k.includes('supabase'))) {
+        keys.push(k)
+      }
+    }
+    keys.forEach((k) => localStorage.removeItem(k))
+    console.warn('[auth] purge supabase storage:', keys)
+  } catch (err) {
+    console.error('[auth] purge error:', err)
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
@@ -68,49 +88,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true
 
-    // Timeout di sicurezza: se dopo N secondi siamo ancora bloccati
-    // su loading, sblocchiamo comunque l'UI (utente vedrà la pagina
-    // di login, oppure la dashboard se la sessione è poi arrivata)
+    // Self-healing timeout: se onAuthStateChange non viene mai chiamato
+    // (token corrotto / deadlock), puliamo localStorage e ricarichiamo
+    // automaticamente la pagina. L'utente vedrà la schermata di login.
     const timeoutId = setTimeout(() => {
       if (mounted && !initDoneRef.current) {
         console.warn(
-          '[auth] init timeout dopo ' + INIT_TIMEOUT_MS + 'ms, sblocco UI'
+          '[auth] init timeout dopo ' +
+            INIT_TIMEOUT_MS +
+            'ms — pulisco storage e ricarico'
         )
-        initDoneRef.current = true
-        setLoading(false)
+        purgeSupabaseStorage()
+        // Reload solo se non siamo già sulla pagina di login
+        if (!window.location.pathname.startsWith('/login')) {
+          window.location.replace('/login')
+        } else {
+          initDoneRef.current = true
+          setLoading(false)
+        }
       }
     }, INIT_TIMEOUT_MS)
 
     // Single source of truth: onAuthStateChange.
-    // Viene chiamato anche all'init con la sessione recuperata dal
-    // localStorage, quindi NON serve un getSession() manuale (che
-    // creerebbe race condition con il listener).
+    // Viene chiamato anche all'init (event 'INITIAL_SESSION') con la
+    // sessione recuperata dal localStorage.
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!mounted) return
 
+      console.info('[auth] event:', event, 'session?', Boolean(newSession))
+
       setSession(newSession)
 
-      // Sblocco lo spinner subito: l'app può già renderizzare il layout.
-      // Il profilo lo carico in background.
       if (!initDoneRef.current) {
         initDoneRef.current = true
         setLoading(false)
       }
 
-      // Carica/aggiorna il profilo in background, senza bloccare l'UI
       if (newSession?.user.id) {
         void loadProfile(newSession.user.id).then((p) => {
           if (mounted) setProfile(p)
         })
       } else {
         setProfile(null)
-      }
-
-      // log per debug
-      if (event !== 'INITIAL_SESSION') {
-        console.info('[auth] event:', event)
       }
     })
 
@@ -121,11 +142,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const role = profile?.role
   const value: AuthState = {
     session,
     profile,
     loading,
-    isAdmin: profile?.role === 'admin',
+    isAdmin: role === 'admin' || role === 'master',
+    isMaster: role === 'master',
     refresh,
     signOut,
   }

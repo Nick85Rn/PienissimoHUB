@@ -8,7 +8,7 @@ import { initialsOf, cn } from '@/lib/utils'
 import { DEPARTMENT_LABELS } from '@/types/database'
 
 export default function Settings() {
-  const { profile, isAdmin, refresh } = useAuth()
+  const { profile, isAdmin, isMaster, refresh } = useAuth()
   const toast = useToast()
 
   const [fullName, setFullName] = useState(profile?.full_name ?? '')
@@ -111,13 +111,15 @@ export default function Settings() {
               <span
                 className={cn(
                   'inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider',
-                  isAdmin
-                    ? 'bg-pienissimo-50 text-pienissimo-blue'
-                    : 'bg-slate-100 text-slate-600'
+                  isMaster
+                    ? 'bg-purple-100 text-purple-700'
+                    : isAdmin
+                      ? 'bg-pienissimo-50 text-pienissimo-blue'
+                      : 'bg-slate-100 text-slate-600'
                 )}
               >
                 {isAdmin && <ShieldCheck size={10} />}
-                {isAdmin ? 'Admin' : 'Guest'}
+                {isMaster ? 'Master' : isAdmin ? 'Admin' : 'Guest'}
               </span>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600">
                 <Building2 size={10} />

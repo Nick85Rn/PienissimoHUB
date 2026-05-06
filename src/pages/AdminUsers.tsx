@@ -136,13 +136,19 @@ export default function AdminUsers() {
                       <span
                         className={cn(
                           'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold',
-                          u.role === 'admin'
-                            ? 'bg-pienissimo-50 text-pienissimo-blue'
-                            : 'bg-slate-100 text-slate-600'
+                          u.role === 'master'
+                            ? 'bg-purple-100 text-purple-700'
+                            : u.role === 'admin'
+                              ? 'bg-pienissimo-50 text-pienissimo-blue'
+                              : 'bg-slate-100 text-slate-600'
                         )}
                       >
-                        {u.role === 'admin' && <ShieldCheck size={11} />}
-                        {u.role === 'admin' ? 'Admin' : 'Guest'}
+                        {u.role !== 'guest' && <ShieldCheck size={11} />}
+                        {u.role === 'master'
+                          ? 'Master'
+                          : u.role === 'admin'
+                            ? 'Admin'
+                            : 'Guest'}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-slate-600 font-medium">
@@ -364,8 +370,9 @@ function UserFormModal({
                 onChange={(e) => setRole(e.target.value as UserRole)}
                 className="form-select"
               >
-                <option value="guest">Guest</option>
-                <option value="admin">Admin</option>
+                <option value="guest">Guest — solo lettura</option>
+                <option value="admin">Admin — può creare task</option>
+                <option value="master">Master — gestisce anche utenti</option>
               </select>
             </div>
 

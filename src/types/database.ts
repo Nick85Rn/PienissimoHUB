@@ -1,7 +1,7 @@
 // Tipi del database. Una volta che il progetto Supabase è creato,
 // puoi rigenerarli automaticamente con `npm run types:gen`.
 
-export type UserRole = 'admin' | 'guest'
+export type UserRole = 'master' | 'admin' | 'guest'
 
 export type Department =
   | 'marketing'
@@ -62,10 +62,20 @@ export interface Task {
   published_at: string | null
 }
 
+export interface TaskAttachment {
+  id: string
+  task_id: string
+  label: string
+  url: string
+  position: number
+  created_at: string
+}
+
 // Task con relazioni espanse (come restituito dalle query con join)
 export interface TaskWithRelations extends Task {
   category: Pick<Category, 'name' | 'color_class'> | null
   author: Pick<Profile, 'full_name' | 'department'> | null
+  attachments?: TaskAttachment[]
 }
 
 export interface Comment {

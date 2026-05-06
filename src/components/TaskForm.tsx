@@ -1,10 +1,23 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Save, Send, ArrowLeft, Link as LinkIcon, AlertCircle } from 'lucide-react'
+import {
+  Save,
+  Send,
+  ArrowLeft,
+  Link as LinkIcon,
+  AlertCircle,
+  Plus,
+  Trash2,
+  GripVertical,
+} from 'lucide-react'
 import { useToast } from '@/context/ToastContext'
 import { useAuth } from '@/context/AuthContext'
 import { useCategories } from '@/hooks/useCategories'
 import { useCreateTask, useUpdateTask } from '@/hooks/useTasks'
+import {
+  useTaskAttachments,
+  useReplaceTaskAttachments,
+} from '@/hooks/useTaskAttachments'
 import { RichTextEditor } from '@/components/RichTextEditor'
 import { makeExcerpt } from '@/lib/sanitize'
 import { cn } from '@/lib/utils'
@@ -26,6 +39,16 @@ interface TaskFormProps {
   mode: 'create' | 'edit'
 }
 
+interface AttachmentDraft {
+  id: string // client-side, solo per il React key
+  label: string
+  url: string
+}
+
+function makeId() {
+  return Math.random().toString(36).slice(2)
+}
+
 export function TaskForm({ initial, mode }: TaskFormProps) {
   const navigate = useNavigate()
   const toast = useToast()
@@ -33,13 +56,14 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
   const { data: categories = [] } = useCategories()
   const createMutation = useCreateTask()
   const updateMutation = useUpdateTask()
+  const replaceAttachments = useReplaceTaskAttachments()
+  const { data: existingAttachments = [] } = useTaskAttachments(initial?.id)
 
   const [title, setTitle] = useState(initial?.title ?? '')
   const [content, setContent] = useState(initial?.content ?? '')
   const [type, setType] = useState<TaskType>(initial?.type ?? 'aggiornamento')
   const [categoryId, setCategoryId] = useState<string>(initial?.category_id ?? '')
   const [version, setVersion] = useState(initial?.version ?? '')
-  const [attachmentUrl, setAttachmentUrl] = useState(initial?.attachment_url ?? '')
   const [targetDepartments, setTargetDepartments] = useState<Department[]>(
     initial?.target_departments ?? []
   )
@@ -50,10 +74,24 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
     initial?.bug_severity ?? ''
   )
 
+  const [attachments, setAttachments] = useState<AttachmentDraft[]>([])
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // pre-popola bug fields se cambia il tipo
+  // Quando arrivano gli allegati esistenti (in modalità edit), li carico
+  useEffect(() => {
+    if (mode === 'edit' && existingAttachments.length > 0) {
+      setAttachments(
+        existingAttachments.map((a) => ({
+          id: a.id,
+          label: a.label,
+          url: a.url,
+        }))
+      )
+    }
+  }, [mode, existingAttachments])
+
+  // Pre-popola bug fields
   useEffect(() => {
     if (type === 'bugfix') {
       if (!bugStatus) setBugStatus('aperto')
@@ -69,6 +107,30 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
     setTargetDepartments((prev) =>
       prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]
     )
+  }
+
+  const addAttachment = () => {
+    setAttachments((prev) => [...prev, { id: makeId(), label: '', url: '' }])
+  }
+  const updateAttachment = (id: string, patch: Partial<AttachmentDraft>) => {
+    setAttachments((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, ...patch } : a))
+    )
+  }
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id))
+  }
+  const moveAttachment = (id: string, direction: 'up' | 'down') => {
+    setAttachments((prev) => {
+      const idx = prev.findIndex((a) => a.id === id)
+      if (idx === -1) return prev
+      const newIdx = direction === 'up' ? idx - 1 : idx + 1
+      if (newIdx < 0 || newIdx >= prev.length) return prev
+      const next = [...prev]
+      const [item] = next.splice(idx, 1)
+      if (item) next.splice(newIdx, 0, item)
+      return next
+    })
   }
 
   const handleSave = async (status: 'draft' | 'published') => {
@@ -90,6 +152,21 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
       return
     }
 
+    // Validazione allegati: ogni riga compilata deve avere sia label che url
+    const filledAttachments = attachments.filter(
+      (a) => a.label.trim() || a.url.trim()
+    )
+    for (const a of filledAttachments) {
+      if (!a.label.trim()) {
+        setError('Ogni allegato deve avere un nome.')
+        return
+      }
+      if (!a.url.trim() || !/^https?:\/\//i.test(a.url.trim())) {
+        setError(`L'URL "${a.url}" non è valido (deve iniziare con http:// o https://).`)
+        return
+      }
+    }
+
     setIsSubmitting(true)
     setError(null)
 
@@ -102,7 +179,7 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
       type,
       category_id: categoryId || null,
       version: version.trim() || null,
-      attachment_url: attachmentUrl.trim() || null,
+      attachment_url: null, // deprecato, usiamo task_attachments
       target_departments: targetDepartments,
       status,
       bug_status: type === 'bugfix' ? (bugStatus as BugStatus) : null,
@@ -111,21 +188,33 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
     }
 
     try {
+      let taskId: string
       if (mode === 'create') {
         const created = await createMutation.mutateAsync(payload)
-        toast.show(
-          status === 'published' ? 'Task pubblicato' : 'Bozza salvata'
-        )
-        navigate(`/task/${created.id}`)
+        taskId = created.id
       } else if (initial) {
         await updateMutation.mutateAsync({ id: initial.id, patch: payload })
-        toast.show(
-          status === 'published'
-            ? 'Modifiche pubblicate'
-            : 'Modifiche salvate in bozza'
-        )
-        navigate(`/task/${initial.id}`)
+        taskId = initial.id
+      } else {
+        return
       }
+
+      // Salva gli allegati
+      await replaceAttachments.mutateAsync({
+        taskId,
+        attachments: filledAttachments.map((a, idx) => ({
+          label: a.label.trim(),
+          url: a.url.trim(),
+          position: idx,
+        })),
+      })
+
+      toast.show(
+        status === 'published'
+          ? mode === 'create' ? 'Task pubblicato' : 'Modifiche pubblicate'
+          : mode === 'create' ? 'Bozza salvata' : 'Modifiche salvate in bozza'
+      )
+      navigate(`/task/${taskId}`)
     } catch (err) {
       setError(
         err instanceof Error
@@ -190,7 +279,6 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
       )}
 
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 md:p-8 space-y-6">
-        {/* Title */}
         <input
           type="text"
           placeholder="Titolo del task..."
@@ -200,7 +288,6 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
           className="w-full text-2xl md:text-3xl font-bold text-slate-900 placeholder:text-slate-300 outline-none border-b border-transparent focus:border-slate-200 pb-2 transition-colors"
         />
 
-        {/* Meta grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50/50 p-5 rounded-xl border border-slate-100">
           <Field label="Tipo *">
             <select
@@ -250,7 +337,6 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
           </Field>
         </div>
 
-        {/* Bug-specific fields */}
         {type === 'bugfix' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-red-50/30 p-5 rounded-xl border border-red-100">
             <Field label="Stato del bug *">
@@ -259,9 +345,7 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
                 onChange={(e) => setBugStatus(e.target.value as BugStatus)}
                 className="form-select"
               >
-                <option value="" disabled>
-                  Seleziona...
-                </option>
+                <option value="" disabled>Seleziona...</option>
                 {(Object.keys(BUG_STATUS_LABELS) as BugStatus[]).map((s) => (
                   <option key={s} value={s}>
                     {BUG_STATUS_LABELS[s]}
@@ -276,22 +360,15 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
                 onChange={(e) => setBugSeverity(e.target.value as BugSeverity)}
                 className="form-select"
               >
-                <option value="" disabled>
-                  Seleziona...
-                </option>
-                {(Object.keys(BUG_SEVERITY_LABELS) as BugSeverity[]).map(
-                  (s) => (
-                    <option key={s} value={s}>
-                      {BUG_SEVERITY_LABELS[s]}
-                    </option>
-                  )
-                )}
+                <option value="" disabled>Seleziona...</option>
+                {(Object.keys(BUG_SEVERITY_LABELS) as BugSeverity[]).map((s) => (
+                  <option key={s} value={s}>{BUG_SEVERITY_LABELS[s]}</option>
+                ))}
               </select>
             </Field>
           </div>
         )}
 
-        {/* Target departments */}
         <Field
           label="Reparti interessati"
           hint="Indica a chi è utile questo task (puramente informativo, non filtra la visibilità)"
@@ -318,24 +395,79 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
           </div>
         </Field>
 
-        {/* Attachment URL */}
-        <Field label="Allegato esterno (Zoho WorkDrive, Drive...)">
-          <div className="relative">
-            <LinkIcon
-              className="absolute left-4 top-3 text-slate-400"
-              size={16}
-            />
-            <input
-              type="url"
-              placeholder="https://workdrive.zoho.eu/..."
-              value={attachmentUrl}
-              onChange={(e) => setAttachmentUrl(e.target.value)}
-              className="form-input pl-10"
-            />
+        {/* Allegati multipli */}
+        <Field
+          label="Link e allegati"
+          hint="Aggiungi tutti i link utili: documentazione, video, screenshot, ecc."
+        >
+          <div className="space-y-2">
+            {attachments.map((a, idx) => (
+              <div
+                key={a.id}
+                className="flex items-stretch gap-2 group bg-slate-50/40 border border-slate-200 rounded-xl p-2"
+              >
+                <div className="flex flex-col gap-1 justify-center">
+                  <button
+                    type="button"
+                    onClick={() => moveAttachment(a.id, 'up')}
+                    disabled={idx === 0}
+                    className="p-0.5 text-slate-300 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    title="Sposta su"
+                  >
+                    <GripVertical size={14} className="rotate-180" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveAttachment(a.id, 'down')}
+                    disabled={idx === attachments.length - 1}
+                    className="p-0.5 text-slate-300 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    title="Sposta giù"
+                  >
+                    <GripVertical size={14} />
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Nome (es. Documentazione tecnica)"
+                  value={a.label}
+                  onChange={(e) => updateAttachment(a.id, { label: e.target.value })}
+                  maxLength={100}
+                  className="form-input flex-1 max-w-xs"
+                />
+                <div className="relative flex-1">
+                  <LinkIcon
+                    className="absolute left-3 top-3 text-slate-400"
+                    size={14}
+                  />
+                  <input
+                    type="url"
+                    placeholder="https://..."
+                    value={a.url}
+                    onChange={(e) => updateAttachment(a.id, { url: e.target.value })}
+                    className="form-input pl-9"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(a.id)}
+                  className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  aria-label="Rimuovi"
+                  title="Rimuovi"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addAttachment}
+              className="w-full py-2.5 border-2 border-dashed border-slate-200 text-slate-500 hover:text-pienissimo-blue hover:border-pienissimo-blue/40 hover:bg-pienissimo-50/40 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors"
+            >
+              <Plus size={14} /> Aggiungi link
+            </button>
           </div>
         </Field>
 
-        {/* Editor */}
         <Field label="Contenuto *">
           <RichTextEditor content={content} onChange={setContent} />
         </Field>
