@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -20,23 +21,33 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null)
 
+// Timeout di sicurezza: dopo questo tempo togliamo lo spinner
+// anche se Supabase non ha risposto, così l'app non resta bloccata.
+const INIT_TIMEOUT_MS = 5000
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
+  const initDoneRef = useRef(false)
 
   const loadProfile = async (userId: string): Promise<Profile | null> => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single<Profile>()
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle<Profile>()
 
-    if (error) {
-      console.error('[auth] loadProfile error:', error.message)
+      if (error) {
+        console.error('[auth] loadProfile error:', error.message)
+        return null
+      }
+      return data
+    } catch (err) {
+      console.error('[auth] loadProfile exception:', err)
       return null
     }
-    return data
   }
 
   const refresh = async () => {
@@ -52,38 +63,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     await supabase.auth.signOut()
-    // onAuthStateChange si occuperà del resto
   }
 
   useEffect(() => {
     let mounted = true
 
-    void (async () => {
-      const { data } = await supabase.auth.getSession()
-      if (!mounted) return
-      setSession(data.session)
-      if (data.session?.user.id) {
-        const p = await loadProfile(data.session.user.id)
-        if (mounted) setProfile(p)
+    // Timeout di sicurezza: se dopo N secondi siamo ancora bloccati
+    // su loading, sblocchiamo comunque l'UI (utente vedrà la pagina
+    // di login, oppure la dashboard se la sessione è poi arrivata)
+    const timeoutId = setTimeout(() => {
+      if (mounted && !initDoneRef.current) {
+        console.warn(
+          '[auth] init timeout dopo ' + INIT_TIMEOUT_MS + 'ms, sblocco UI'
+        )
+        initDoneRef.current = true
+        setLoading(false)
       }
-      if (mounted) setLoading(false)
-    })()
+    }, INIT_TIMEOUT_MS)
 
+    // Single source of truth: onAuthStateChange.
+    // Viene chiamato anche all'init con la sessione recuperata dal
+    // localStorage, quindi NON serve un getSession() manuale (che
+    // creerebbe race condition con il listener).
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!mounted) return
+
       setSession(newSession)
+
+      // Sblocco lo spinner subito: l'app può già renderizzare il layout.
+      // Il profilo lo carico in background.
+      if (!initDoneRef.current) {
+        initDoneRef.current = true
+        setLoading(false)
+      }
+
+      // Carica/aggiorna il profilo in background, senza bloccare l'UI
       if (newSession?.user.id) {
-        const p = await loadProfile(newSession.user.id)
-        if (mounted) setProfile(p)
+        void loadProfile(newSession.user.id).then((p) => {
+          if (mounted) setProfile(p)
+        })
       } else {
         setProfile(null)
+      }
+
+      // log per debug
+      if (event !== 'INITIAL_SESSION') {
+        console.info('[auth] event:', event)
       }
     })
 
     return () => {
       mounted = false
+      clearTimeout(timeoutId)
       subscription.unsubscribe()
     }
   }, [])
