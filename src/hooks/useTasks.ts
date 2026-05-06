@@ -4,6 +4,14 @@ import type { Task, TaskWithRelations } from '@/types/database'
 
 const TASKS_KEY = ['tasks'] as const
 
+// PostgREST richiede hint espliciti sulle FK quando potrebbero esserci
+// più relazioni tra le stesse tabelle. Specifichiamo il nome del constraint.
+const TASK_SELECT = `
+  *,
+  category:categories!tasks_category_id_fkey(name, color_class),
+  author:profiles!tasks_author_id_fkey(full_name, department)
+`
+
 interface TaskFilters {
   search?: string
   category_id?: string | null
@@ -18,13 +26,7 @@ export function useTasks(filters: TaskFilters = {}) {
     queryFn: async (): Promise<TaskWithRelations[]> => {
       let query = supabase
         .from('tasks')
-        .select(
-          `
-          *,
-          category:categories(name, color_class),
-          author:profiles(full_name, department)
-        `
-        )
+        .select(TASK_SELECT)
         .order('published_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false })
 
@@ -48,7 +50,7 @@ export function useTasks(filters: TaskFilters = {}) {
 
       const { data, error } = await query
       if (error) throw error
-      return (data ?? []) as TaskWithRelations[]
+      return (data ?? []) as unknown as TaskWithRelations[]
     },
   })
 }
@@ -61,18 +63,12 @@ export function useTask(id: string | undefined) {
       if (!id) return null
       const { data, error } = await supabase
         .from('tasks')
-        .select(
-          `
-          *,
-          category:categories(name, color_class),
-          author:profiles(full_name, department)
-        `
-        )
+        .select(TASK_SELECT)
         .eq('id', id)
         .maybeSingle()
 
       if (error) throw error
-      return data as TaskWithRelations | null
+      return data as unknown as TaskWithRelations | null
     },
   })
 }

@@ -26,18 +26,12 @@ export default function Layout() {
     <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">
       <aside className="w-64 bg-white border-r border-slate-200 flex flex-col shrink-0">
         {/* Brand */}
-        <div className="h-20 flex items-center px-6 border-b border-slate-100 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-pienissimo-blue text-white grid place-items-center font-black text-sm">
-              P
-            </div>
-            <div>
-              <p className="font-bold text-slate-900 text-sm leading-tight">
-                Pienissimo
-              </p>
-              <p className="text-xs text-slate-500 leading-tight">Hub</p>
-            </div>
-          </div>
+        <div className="h-20 flex items-center justify-center px-6 border-b border-slate-100 shrink-0">
+          <img
+            src="/logo.png"
+            alt="Pienissimo PRO"
+            className="h-7 w-auto"
+          />
         </div>
 
         {/* Nav */}

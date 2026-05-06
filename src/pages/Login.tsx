@@ -33,11 +33,13 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-sans">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <div className="mx-auto w-14 h-14 rounded-2xl bg-pienissimo-blue text-white grid place-items-center font-black text-2xl mb-4 shadow-lg shadow-pienissimo-blue/20">
-          P
-        </div>
-        <h1 className="text-3xl font-black tracking-tight text-slate-900">
-          Pienissimo Hub
+        <img
+          src="/logo.png"
+          alt="Pienissimo PRO"
+          className="mx-auto h-12 w-auto mb-6"
+        />
+        <h1 className="text-2xl font-black tracking-tight text-slate-900">
+          Hub Aggiornamenti
         </h1>
         <p className="text-sm text-slate-500 mt-2">
           Accedi al workspace interno

@@ -3,6 +3,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import type { CommentWithAuthor } from '@/types/database'
 
+// Hint FK esplicito: il commento ha author_id → profiles.id
+const COMMENT_SELECT = `
+  *,
+  author:profiles!comments_author_id_fkey(full_name, department)
+`
+
 export function useComments(taskId: string | undefined) {
   const qc = useQueryClient()
   const queryKey = ['comments', taskId] as const
@@ -14,20 +20,15 @@ export function useComments(taskId: string | undefined) {
       if (!taskId) return []
       const { data, error } = await supabase
         .from('comments')
-        .select(
-          `
-          *,
-          author:profiles(full_name, department)
-        `
-        )
+        .select(COMMENT_SELECT)
         .eq('task_id', taskId)
         .order('created_at', { ascending: true })
       if (error) throw error
-      return (data ?? []) as CommentWithAuthor[]
+      return (data ?? []) as unknown as CommentWithAuthor[]
     },
   })
 
-  // Realtime: ricarica quando arrivano nuovi commenti
+  // Realtime
   useEffect(() => {
     if (!taskId) return
     const channel = supabase
