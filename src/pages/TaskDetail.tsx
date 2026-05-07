@@ -10,11 +10,12 @@ import {
   Bug,
   AlertCircle,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
 import { useTask, useDeleteTask } from '@/hooks/useTasks'
 import { useTaskAttachments } from '@/hooks/useTaskAttachments'
+import { useMarkTaskRead } from '@/hooks/useReadReceipts'
 import { SafeHtml } from '@/components/SafeHtml'
 import { CommentsSection } from '@/components/CommentsSection'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
@@ -39,7 +40,16 @@ export default function TaskDetail() {
   const { data: task, isLoading, error } = useTask(id)
   const { data: attachments = [] } = useTaskAttachments(id)
   const deleteMutation = useDeleteTask()
+  const markRead = useMarkTaskRead()
   const [confirmDelete, setConfirmDelete] = useState(false)
+
+  // Quando il task è pubblicato e viene visualizzato, segnalo come letto
+  useEffect(() => {
+    if (task?.id && task.status === 'published') {
+      markRead.mutate(task.id)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task?.id])
 
   if (isLoading) return <PageLoader />
 

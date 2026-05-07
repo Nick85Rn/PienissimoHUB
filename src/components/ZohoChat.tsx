@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useAuth } from '@/context/AuthContext'
+import { useUIPrefs } from '@/context/UIPrefsContext'
 
 const ZOHO_SCRIPT_ID = 'zsiqscript'
 const ZOHO_WIDGET_CODE =
@@ -7,11 +8,15 @@ const ZOHO_WIDGET_CODE =
 const ZOHO_SRC = `https://salesiq.zohopublic.eu/widget?wc=${ZOHO_WIDGET_CODE}`
 
 interface ZohoSalesIQ {
-  ready: () => void
+  ready?: () => void
   visitor?: {
     name: (n: string) => void
     email: (e: string) => void
   }
+  floatbutton?: {
+    visible: (state: 'show' | 'hide') => void
+  }
+  reset?: () => void
 }
 
 declare global {
@@ -21,39 +26,58 @@ declare global {
 }
 
 /**
- * Inietta il widget Zoho SalesIQ nella pagina e lo identifica con
- * i dati dell'utente loggato. Si auto-pulisce al logout.
+ * Inietta il widget Zoho SalesIQ con possibilità di nascondere/mostrare
+ * dinamicamente in base alle preferenze utente.
+ *
+ * Lo script viene caricato la prima volta che `chatEnabled` diventa true,
+ * poi viene solo mostrato/nascosto via API floatbutton.visible.
  */
 export function ZohoChat() {
   const { profile } = useAuth()
+  const { chatEnabled } = useUIPrefs()
 
   useEffect(() => {
-    // Init oggetto globale come da snippet ufficiale di Zoho
+    if (!chatEnabled) {
+      // Nasconde il widget se è già caricato
+      try {
+        window.$zoho?.salesiq?.floatbutton?.visible('hide')
+      } catch {
+        // ignora
+      }
+      return
+    }
+
+    // chatEnabled === true
     window.$zoho = window.$zoho ?? {}
     window.$zoho.salesiq = window.$zoho.salesiq ?? {
       ready: () => {
-        // Quando il widget è pronto, identifichiamo l'utente
         if (profile && window.$zoho?.salesiq?.visitor) {
           window.$zoho.salesiq.visitor.name(profile.full_name)
           window.$zoho.salesiq.visitor.email(profile.email)
         }
+        window.$zoho?.salesiq?.floatbutton?.visible('show')
       },
     }
 
-    // Carica lo script una sola volta
     if (!document.getElementById(ZOHO_SCRIPT_ID)) {
       const script = document.createElement('script')
       script.id = ZOHO_SCRIPT_ID
       script.src = ZOHO_SRC
       script.defer = true
       document.body.appendChild(script)
-    } else if (profile && window.$zoho?.salesiq?.visitor) {
-      // Se lo script è già caricato e cambia utente (es. dopo refresh),
-      // riaggiorniamo i dati visitor
-      window.$zoho.salesiq.visitor.name(profile.full_name)
-      window.$zoho.salesiq.visitor.email(profile.email)
+    } else {
+      // Script già caricato in precedenza: re-mostra il widget
+      try {
+        window.$zoho?.salesiq?.floatbutton?.visible('show')
+        if (profile && window.$zoho?.salesiq?.visitor) {
+          window.$zoho.salesiq.visitor.name(profile.full_name)
+          window.$zoho.salesiq.visitor.email(profile.email)
+        }
+      } catch {
+        // ignora
+      }
     }
-  }, [profile])
+  }, [profile, chatEnabled])
 
   return null
 }

@@ -5,13 +5,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
 import { AuthProvider } from '@/context/AuthContext'
 import { ToastProvider } from '@/context/ToastContext'
+import { UIPrefsProvider } from '@/context/UIPrefsContext'
 import './index.css'
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 1,
-      staleTime: 30_000, // 30s
+      staleTime: 30_000,
       refetchOnWindowFocus: false,
     },
   },
@@ -26,7 +27,9 @@ createRoot(rootEl).render(
       <BrowserRouter>
         <AuthProvider>
           <ToastProvider>
-            <App />
+            <UIPrefsProvider>
+              <App />
+            </UIPrefsProvider>
           </ToastProvider>
         </AuthProvider>
       </BrowserRouter>

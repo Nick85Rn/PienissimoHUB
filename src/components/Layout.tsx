@@ -7,8 +7,11 @@ import {
   Users,
   Tag,
   ShieldCheck,
+  MessageCircle,
+  MessageCircleOff,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
+import { useUIPrefs } from '@/context/UIPrefsContext'
 import { cn, initialsOf } from '@/lib/utils'
 import { DEPARTMENT_LABELS } from '@/types/database'
 import { ZohoChat } from './ZohoChat'
@@ -17,6 +20,7 @@ export default function Layout() {
   const location = useLocation()
   const navigate = useNavigate()
   const { profile, isAdmin, isMaster, signOut } = useAuth()
+  const { chatEnabled, toggleChat } = useUIPrefs()
 
   const handleLogout = async () => {
     await signOut()
@@ -26,12 +30,12 @@ export default function Layout() {
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">
       <aside className="w-64 bg-white border-r border-slate-200 flex flex-col shrink-0">
-        {/* Brand */}
-        <div className="h-20 flex items-center justify-center px-6 border-b border-slate-100 shrink-0">
+        {/* Brand: logo a tutta larghezza */}
+        <div className="h-24 flex items-center justify-center px-4 border-b border-slate-100 shrink-0">
           <img
             src="/logo.png"
             alt="Pienissimo PRO"
-            className="h-7 w-auto"
+            className="w-full max-w-[200px] h-auto"
           />
         </div>
 
@@ -85,6 +89,23 @@ export default function Layout() {
             >
               Profilo
             </SidebarLink>
+            <button
+              type="button"
+              onClick={toggleChat}
+              className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all w-full text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+              title={chatEnabled ? 'Nascondi chat' : 'Mostra chat'}
+            >
+              <span className="text-slate-400 shrink-0">
+                {chatEnabled ? (
+                  <MessageCircle size={18} />
+                ) : (
+                  <MessageCircleOff size={18} />
+                )}
+              </span>
+              <span className="flex-1 text-left">
+                {chatEnabled ? 'Nascondi chat' : 'Mostra chat'}
+              </span>
+            </button>
           </SidebarSection>
         </nav>
 
@@ -94,9 +115,11 @@ export default function Layout() {
             <div
               className={cn(
                 'w-9 h-9 rounded-full grid place-items-center font-bold text-xs shrink-0',
-                isAdmin
-                  ? 'bg-pienissimo-blue text-white'
-                  : 'bg-slate-200 text-slate-700'
+                isMaster
+                  ? 'bg-purple-600 text-white'
+                  : isAdmin
+                    ? 'bg-pienissimo-blue text-white'
+                    : 'bg-slate-200 text-slate-700'
               )}
             >
               {initialsOf(profile?.full_name ?? '')}
@@ -107,7 +130,12 @@ export default function Layout() {
               </p>
               <div className="flex items-center gap-1.5">
                 {isAdmin && (
-                  <ShieldCheck size={11} className="text-pienissimo-blue" />
+                  <ShieldCheck
+                    size={11}
+                    className={
+                      isMaster ? 'text-purple-600' : 'text-pienissimo-blue'
+                    }
+                  />
                 )}
                 <p className="text-xs text-slate-500 truncate">
                   {isMaster

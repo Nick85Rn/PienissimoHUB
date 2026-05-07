@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Plus,
   Trash2,
@@ -231,14 +231,52 @@ function UserFormModal({
   const toast = useToast()
   const manageMutation = useManageUser()
 
-  const [fullName, setFullName] = useState(user?.full_name ?? '')
-  const [email, setEmail] = useState(user?.email ?? '')
+  const initialFullName = user?.full_name ?? ''
+  const initialEmail = user?.email ?? ''
+  const initialRole: UserRole = user?.role ?? 'guest'
+  const initialDepartment: Department = user?.department ?? 'commerciale'
+
+  const [fullName, setFullName] = useState(initialFullName)
+  const [email, setEmail] = useState(initialEmail)
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState<UserRole>(user?.role ?? 'guest')
-  const [department, setDepartment] = useState<Department>(
-    user?.department ?? 'commerciale'
-  )
+  const [role, setRole] = useState<UserRole>(initialRole)
+  const [department, setDepartment] = useState<Department>(initialDepartment)
   const [error, setError] = useState<string | null>(null)
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false)
+
+  // Dirty: il form è "sporco" se l'utente ha cambiato qualcosa rispetto
+  // ai valori iniziali. Per la modalità "create" basta che abbia toccato
+  // qualunque campo.
+  const isDirty =
+    fullName !== initialFullName ||
+    email !== initialEmail ||
+    password !== '' ||
+    role !== initialRole ||
+    department !== initialDepartment
+
+  const handleAttemptClose = () => {
+    if (isDirty && !manageMutation.isPending) {
+      setShowCloseConfirm(true)
+    } else {
+      onClose()
+    }
+  }
+
+  // Gestisce ESC per chiudere il modal con conferma se dirty
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (showCloseConfirm) {
+          setShowCloseConfirm(false)
+        } else {
+          handleAttemptClose()
+        }
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirty, showCloseConfirm])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -289,7 +327,7 @@ function UserFormModal({
       className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in"
       role="dialog"
       aria-modal="true"
-      onClick={onClose}
+      onClick={handleAttemptClose}
     >
       <form
         onSubmit={(e) => void handleSubmit(e)}
@@ -302,7 +340,7 @@ function UserFormModal({
           </h3>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleAttemptClose}
             className="p-1 text-slate-400 hover:text-slate-700 rounded transition-colors"
             aria-label="Chiudi"
           >
@@ -398,7 +436,7 @@ function UserFormModal({
         <div className="flex justify-end gap-2 mt-6">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleAttemptClose}
             className="px-4 py-2 text-sm font-semibold text-slate-700 rounded-lg hover:bg-slate-100 transition-colors"
           >
             Annulla
@@ -416,6 +454,20 @@ function UserFormModal({
           </button>
         </div>
       </form>
+
+      <ConfirmDialog
+        open={showCloseConfirm}
+        title="Modifiche non salvate"
+        message="Hai modifiche non salvate. Sei sicuro di voler uscire? I dati inseriti andranno persi."
+        confirmLabel="Esci senza salvare"
+        cancelLabel="Continua a modificare"
+        variant="warning"
+        onConfirm={() => {
+          setShowCloseConfirm(false)
+          onClose()
+        }}
+        onCancel={() => setShowCloseConfirm(false)}
+      />
     </div>
   )
 }

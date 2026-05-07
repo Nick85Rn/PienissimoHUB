@@ -6,12 +6,15 @@ import {
   FileText,
   X,
   SlidersHorizontal,
+  Mail,
+  CheckCheck,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
 import { useTasks, useDeleteTask } from '@/hooks/useTasks'
 import { useCategories } from '@/hooks/useCategories'
-import { TaskCard } from '@/components/TaskCard'
+import { useReadTaskIds } from '@/hooks/useReadReceipts'
+import { TaskListItem } from '@/components/TaskListItem'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { EmptyState } from '@/components/EmptyState'
 import { Spinner } from '@/components/Spinner'
@@ -41,13 +44,9 @@ export default function Dashboard() {
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const [activeType, setActiveType] = useState<TaskType | null>(null)
-  // null = vede tutto pubblicato (default per admin e per guest);
-  // 'draft' = solo bozze (admin); 'archived' = solo archiviati (admin)
   const [statusFilter, setStatusFilter] = useState<StatusFilter | null>(null)
 
   const filters = useMemo(() => {
-    // I guest sono SEMPRE bloccati su 'published' (e comunque le RLS lo
-    // garantiscono). Gli admin possono scegliere.
     let status: StatusFilter
     if (!isAdmin) {
       status = 'published'
@@ -64,9 +63,26 @@ export default function Dashboard() {
 
   const { data: tasks = [], isLoading } = useTasks(filters)
   const { data: categories = [] } = useCategories()
+  const { data: readSet } = useReadTaskIds()
   const deleteMutation = useDeleteTask()
 
   const [toDelete, setToDelete] = useState<TaskWithRelations | null>(null)
+
+  // Spezza i task in "da leggere" e "già letti"
+  const { unreadTasks, readTasks } = useMemo(() => {
+    const unread: TaskWithRelations[] = []
+    const read: TaskWithRelations[] = []
+    const set = readSet ?? new Set<string>()
+    for (const t of tasks) {
+      // Le bozze non vengono mai considerate "da leggere"
+      if (t.status === 'published' && !set.has(t.id)) {
+        unread.push(t)
+      } else {
+        read.push(t)
+      }
+    }
+    return { unreadTasks: unread, readTasks: read }
+  }, [tasks, readSet])
 
   const confirmDelete = async () => {
     if (!toDelete) return
@@ -96,8 +112,7 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="p-6 md:p-10 max-w-7xl mx-auto w-full">
-      {/* Header */}
+    <div className="p-6 md:p-10 max-w-5xl mx-auto w-full">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-slate-900 tracking-tight">
@@ -120,9 +135,9 @@ export default function Dashboard() {
       </header>
 
       {/* Filters */}
-      <div className="flex flex-col gap-3 mb-8">
+      <div className="flex flex-col gap-3 mb-6">
         <div className="flex flex-col md:flex-row gap-3">
-          <div className="relative flex-1 max-w-md">
+          <div className="relative flex-1 max-w-lg">
             <Search
               className="absolute left-4 top-3 text-slate-400"
               size={18}
@@ -166,7 +181,7 @@ export default function Dashboard() {
                   setStatusFilter((e.target.value || null) as StatusFilter | null)
                 }
                 className={cn(
-                  'pl-9 pr-9 py-2 rounded-lg text-sm font-semibold border cursor-pointer outline-none focus:ring-2 focus:ring-pienissimo-blue/20 focus:border-pienissimo-blue transition-all appearance-none bg-no-repeat bg-right',
+                  'pl-9 pr-9 py-2 rounded-lg text-sm font-semibold border cursor-pointer outline-none focus:ring-2 focus:ring-pienissimo-blue/20 focus:border-pienissimo-blue transition-all appearance-none bg-no-repeat',
                   statusFilter
                     ? 'bg-amber-50 text-amber-800 border-amber-200'
                     : 'bg-white text-slate-600 border-slate-200'
@@ -206,7 +221,6 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Category filters */}
         {categories.length > 0 && (
           <div className="flex flex-wrap gap-2">
             <FilterPill
@@ -261,16 +275,53 @@ export default function Dashboard() {
           }
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {tasks.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              isAdmin={isAdmin}
-              onEdit={(id) => navigate(`/edit-task/${id}`)}
-              onDelete={(t) => setToDelete(t)}
-            />
-          ))}
+        <div className="space-y-8">
+          {/* Da leggere */}
+          {unreadTasks.length > 0 && (
+            <section>
+              <SectionHeader
+                icon={<Mail size={16} className="text-pienissimo-blue" />}
+                title="Da leggere"
+                count={unreadTasks.length}
+                accent
+              />
+              <div className="space-y-2">
+                {unreadTasks.map((task) => (
+                  <TaskListItem
+                    key={task.id}
+                    task={task}
+                    unread
+                    isAdmin={isAdmin}
+                    onEdit={(id) => navigate(`/edit-task/${id}`)}
+                    onDelete={(t) => setToDelete(t)}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Già letti */}
+          {readTasks.length > 0 && (
+            <section>
+              <SectionHeader
+                icon={<CheckCheck size={16} className="text-slate-400" />}
+                title="Già letti"
+                count={readTasks.length}
+              />
+              <div className="space-y-2">
+                {readTasks.map((task) => (
+                  <TaskListItem
+                    key={task.id}
+                    task={task}
+                    unread={false}
+                    isAdmin={isAdmin}
+                    onEdit={(id) => navigate(`/edit-task/${id}`)}
+                    onDelete={(t) => setToDelete(t)}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       )}
 
@@ -287,6 +338,42 @@ export default function Dashboard() {
         onConfirm={() => void confirmDelete()}
         onCancel={() => setToDelete(null)}
       />
+    </div>
+  )
+}
+
+function SectionHeader({
+  icon,
+  title,
+  count,
+  accent,
+}: {
+  icon: React.ReactNode
+  title: string
+  count: number
+  accent?: boolean
+}) {
+  return (
+    <div className="flex items-center gap-2 mb-3 px-1">
+      {icon}
+      <h2
+        className={cn(
+          'text-sm font-bold uppercase tracking-wider',
+          accent ? 'text-pienissimo-blue' : 'text-slate-500'
+        )}
+      >
+        {title}
+      </h2>
+      <span
+        className={cn(
+          'text-xs font-bold px-2 py-0.5 rounded-full',
+          accent
+            ? 'bg-pienissimo-blue/10 text-pienissimo-blue'
+            : 'bg-slate-100 text-slate-500'
+        )}
+      >
+        {count}
+      </span>
     </div>
   )
 }

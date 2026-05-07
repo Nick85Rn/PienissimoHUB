@@ -2,8 +2,10 @@
 
 Tool interno per condividere aggiornamenti, rilasci, bug fix e guide del software **Pienissimo PRO**.
 
-- **Admin** (tu e altri che decidi tu) creano, modificano, archiviano e pubblicano i task. Gestiscono le categorie e gli utenti.
-- **Guest** (marketing, commerciale, zucchetti, ecc.) consultano i task pubblicati e possono commentare per chiedere chiarimenti.
+Tre ruoli:
+- **Master** (solo tu, o pochissimi): può fare tutto, **incluso gestire gli utenti** (crea, modifica, assegna ruoli).
+- **Admin**: crea, modifica, elimina i task. Gestisce le categorie. **Non** vede la sezione Utenti.
+- **Guest** (marketing, commerciale, zucchetti, ecc.): consultano i task pubblicati e possono commentare per chiedere chiarimenti.
 
 I "reparti" sono **etichette informative** che indicano a chi è utile un task — non filtrano la visibilità: tutti i guest vedono tutto.
 

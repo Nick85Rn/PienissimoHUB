@@ -18,7 +18,9 @@ import {
   useTaskAttachments,
   useReplaceTaskAttachments,
 } from '@/hooks/useTaskAttachments'
+import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning'
 import { RichTextEditor } from '@/components/RichTextEditor'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { makeExcerpt } from '@/lib/sanitize'
 import { cn } from '@/lib/utils'
 import {
@@ -77,6 +79,58 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([])
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
+
+  // Calcolo se il form è "dirty" rispetto ai valori iniziali
+  const isDirty = (() => {
+    if (mode === 'create') {
+      // In create: dirty se l'utente ha scritto QUALUNQUE cosa
+      return (
+        title.trim() !== '' ||
+        (content.trim() !== '' && content.trim() !== '<p></p>') ||
+        version.trim() !== '' ||
+        categoryId !== '' ||
+        targetDepartments.length > 0 ||
+        attachments.some((a) => a.label.trim() || a.url.trim()) ||
+        type !== 'aggiornamento' // se ha cambiato il tipo
+      )
+    }
+    // In edit: dirty se i valori sono cambiati rispetto a initial
+    if (!initial) return false
+    if (title !== initial.title) return true
+    if (content !== initial.content) return true
+    if (type !== initial.type) return true
+    if (categoryId !== (initial.category_id ?? '')) return true
+    if (version !== (initial.version ?? '')) return true
+    if (
+      targetDepartments.length !== initial.target_departments.length ||
+      !targetDepartments.every((d) => initial.target_departments.includes(d))
+    ) {
+      return true
+    }
+    if (bugStatus !== (initial.bug_status ?? '')) return true
+    if (bugSeverity !== (initial.bug_severity ?? '')) return true
+    // Allegati: confronto count e contenuto
+    if (attachments.length !== existingAttachments.length) return true
+    for (let i = 0; i < attachments.length; i++) {
+      const a = attachments[i]
+      const e = existingAttachments[i]
+      if (!a || !e) return true
+      if (a.label !== e.label || a.url !== e.url) return true
+    }
+    return false
+  })()
+
+  // Avviso del browser se l'utente prova a chiudere la tab/refresh
+  useUnsavedChangesWarning(isDirty && !isSubmitting)
+
+  const tryGoBack = () => {
+    if (isDirty && !isSubmitting) {
+      setShowLeaveConfirm(true)
+    } else {
+      navigate(-1)
+    }
+  }
 
   // Quando arrivano gli allegati esistenti (in modalità edit), li carico
   useEffect(() => {
@@ -233,7 +287,7 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => navigate(-1)}
+            onClick={tryGoBack}
             className="p-2 bg-white border border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-50 rounded-lg transition-colors"
             aria-label="Torna indietro"
           >
@@ -472,6 +526,20 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
           <RichTextEditor content={content} onChange={setContent} />
         </Field>
       </div>
+
+      <ConfirmDialog
+        open={showLeaveConfirm}
+        title="Modifiche non salvate"
+        message="Hai modifiche non salvate. Vuoi davvero uscire? Tutte le modifiche andranno perse."
+        confirmLabel="Esci senza salvare"
+        cancelLabel="Continua a modificare"
+        variant="warning"
+        onConfirm={() => {
+          setShowLeaveConfirm(false)
+          navigate(-1)
+        }}
+        onCancel={() => setShowLeaveConfirm(false)}
+      />
     </div>
   )
 }

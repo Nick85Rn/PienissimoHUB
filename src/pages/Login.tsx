@@ -36,7 +36,7 @@ export default function Login() {
         <img
           src="/logo.png"
           alt="Pienissimo PRO"
-          className="mx-auto h-12 w-auto mb-6"
+          className="mx-auto h-16 w-auto mb-6"
         />
         <h1 className="text-2xl font-black tracking-tight text-slate-900">
           Hub Aggiornamenti

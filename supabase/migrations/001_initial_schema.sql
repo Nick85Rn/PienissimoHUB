@@ -82,6 +82,11 @@ create table public.tasks (
 
   -- Audit
   author_id uuid not null references auth.users(id) on delete restrict,
+  -- FK aggiuntiva diretta verso profiles, necessaria per consentire a
+  -- PostgREST di fare l'embedding `tasks → profiles` nelle query API.
+  -- Punta alla stessa colonna di sopra (profiles.id == auth.users.id).
+  constraint tasks_author_profile_fkey foreign key (author_id)
+    references public.profiles(id) on delete restrict,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   published_at timestamptz
@@ -102,6 +107,9 @@ create table public.comments (
   id uuid primary key default gen_random_uuid(),
   task_id uuid not null references public.tasks(id) on delete cascade,
   author_id uuid not null references auth.users(id) on delete cascade,
+  -- FK diretta verso profiles per embedding PostgREST
+  constraint comments_author_profile_fkey foreign key (author_id)
+    references public.profiles(id) on delete cascade,
   content text not null check (length(trim(content)) > 0 and length(content) <= 2000),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
