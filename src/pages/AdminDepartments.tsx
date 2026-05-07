@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Plus,
   Trash2,
@@ -8,6 +8,7 @@ import {
   Building2,
   ChevronUp,
   ChevronDown,
+  Tag,
 } from 'lucide-react'
 import { useToast } from '@/context/ToastContext'
 import {
@@ -16,6 +17,11 @@ import {
   useUpdateDepartment,
   useDeleteDepartment,
 } from '@/hooks/useDepartments'
+import { useCategories } from '@/hooks/useCategories'
+import {
+  useDepartmentCategories,
+  useReplaceDepartmentCategories,
+} from '@/hooks/useCategoryAccess'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Spinner } from '@/components/Spinner'
 import { EmptyState } from '@/components/EmptyState'
@@ -42,6 +48,7 @@ export default function AdminDepartments() {
   const [editColor, setEditColor] = useState('')
 
   const [toDelete, setToDelete] = useState<Department | null>(null)
+  const [configuring, setConfiguring] = useState<Department | null>(null)
 
   const handleCreate = async () => {
     if (!newName.trim()) return
@@ -265,6 +272,14 @@ export default function AdminDepartments() {
                   ) : (
                     <>
                       <button
+                        onClick={() => setConfiguring(dept)}
+                        className="p-2 text-slate-400 hover:text-pienissimo-blue hover:bg-blue-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                        aria-label="Categorie default"
+                        title="Categorie default"
+                      >
+                        <Tag size={14} />
+                      </button>
+                      <button
                         onClick={() => startEdit(dept)}
                         className="p-2 text-slate-400 hover:text-pienissimo-blue hover:bg-blue-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
                         aria-label="Modifica"
@@ -299,6 +314,192 @@ export default function AdminDepartments() {
         confirmLabel="Elimina"
         onConfirm={() => void handleDelete()}
         onCancel={() => setToDelete(null)}
+      />
+
+      {configuring && (
+        <DepartmentCategoriesModal
+          department={configuring}
+          onClose={() => setConfiguring(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// =====================================================================
+// Modal: configura le categorie default di un reparto
+// =====================================================================
+function DepartmentCategoriesModal({
+  department,
+  onClose,
+}: {
+  department: Department
+  onClose: () => void
+}) {
+  const toast = useToast()
+  const { data: allCategories = [] } = useCategories()
+  const { data: deptCategoryIds = [] } = useDepartmentCategories(department.id)
+  const replaceMutation = useReplaceDepartmentCategories()
+
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false)
+
+  // Carica le categorie correnti del reparto
+  useEffect(() => {
+    setSelectedIds(deptCategoryIds)
+  }, [deptCategoryIds])
+
+  const isDirty =
+    selectedIds.length !== deptCategoryIds.length ||
+    !selectedIds.every((id) => deptCategoryIds.includes(id))
+
+  const handleAttemptClose = () => {
+    if (isDirty && !replaceMutation.isPending) {
+      setShowCloseConfirm(true)
+    } else {
+      onClose()
+    }
+  }
+
+  const toggle = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    )
+  }
+
+  const handleSave = async () => {
+    try {
+      await replaceMutation.mutateAsync({
+        departmentId: department.id,
+        categoryIds: selectedIds,
+      })
+      toast.show('Categorie default aggiornate')
+      onClose()
+    } catch (err) {
+      toast.show(
+        err instanceof Error ? err.message : "Errore nel salvataggio",
+        'error'
+      )
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in"
+      role="dialog"
+      aria-modal="true"
+      onClick={handleAttemptClose}
+    >
+      <div
+        className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6 animate-slide-up max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="flex justify-between items-start mb-5">
+          <div>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
+              Categorie default
+            </p>
+            <h3 className="text-lg font-bold text-slate-900">
+              <span
+                className={cn(
+                  'inline-flex items-center px-2 py-0.5 rounded-md text-sm font-bold border mr-2',
+                  department.color_class
+                )}
+              >
+                {department.name}
+              </span>
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={handleAttemptClose}
+            className="p-1 text-slate-400 hover:text-slate-700 rounded transition-colors"
+            aria-label="Chiudi"
+          >
+            <X size={18} />
+          </button>
+        </header>
+
+        <p className="text-sm text-slate-500 mb-4 leading-relaxed">
+          Quando un nuovo guest viene assegnato a questo reparto, riceve
+          automaticamente queste categorie come "consultabili". I guest
+          esistenti non vengono modificati a meno che tu non clicchi
+          "Reimposta dal reparto" sulla loro scheda.
+        </p>
+
+        {allCategories.length === 0 ? (
+          <p className="text-sm text-slate-400 italic py-6 text-center">
+            Nessuna categoria definita.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {allCategories.map((c) => {
+              const active = selectedIds.includes(c.id)
+              return (
+                <button
+                  type="button"
+                  key={c.id}
+                  onClick={() => toggle(c.id)}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold border transition-colors',
+                    active
+                      ? 'bg-pienissimo-blue text-white border-pienissimo-blue'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'w-1.5 h-1.5 rounded-full',
+                      active ? 'bg-white' : c.color_class
+                    )}
+                  />
+                  {c.name}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        <div className="flex justify-between items-center mt-6 pt-4 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={() => setSelectedIds(allCategories.map((c) => c.id))}
+            className="text-xs font-semibold text-pienissimo-blue hover:text-pienissimo-dark"
+          >
+            Seleziona tutte
+          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleAttemptClose}
+              className="px-4 py-2 text-sm font-semibold text-slate-700 rounded-lg hover:bg-slate-100 transition-colors"
+            >
+              Annulla
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={replaceMutation.isPending}
+              className="px-4 py-2 text-sm font-semibold text-white bg-pienissimo-blue rounded-lg hover:bg-pienissimo-dark transition-colors disabled:opacity-50"
+            >
+              {replaceMutation.isPending ? 'Salvataggio...' : 'Salva'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <ConfirmDialog
+        open={showCloseConfirm}
+        title="Modifiche non salvate"
+        message="Hai modifiche non salvate. Sei sicuro di voler uscire?"
+        confirmLabel="Esci senza salvare"
+        cancelLabel="Continua a modificare"
+        variant="warning"
+        onConfirm={() => {
+          setShowCloseConfirm(false)
+          onClose()
+        }}
+        onCancel={() => setShowCloseConfirm(false)}
       />
     </div>
   )

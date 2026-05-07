@@ -14,6 +14,12 @@ import { useToast } from '@/context/ToastContext'
 import { useAuth } from '@/context/AuthContext'
 import { useUsers, useManageUser } from '@/hooks/useUsers'
 import { useDepartments } from '@/hooks/useDepartments'
+import { useCategories } from '@/hooks/useCategories'
+import {
+  useUserCategories,
+  useReplaceUserCategories,
+  useResetUserCategoriesFromDept,
+} from '@/hooks/useCategoryAccess'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Spinner } from '@/components/Spinner'
 import { EmptyState } from '@/components/EmptyState'
@@ -239,6 +245,10 @@ function UserFormModal({
   const toast = useToast()
   const manageMutation = useManageUser()
   const { data: departments = [] } = useDepartments()
+  const { data: categories = [] } = useCategories()
+  const { data: userCategoryIds = [] } = useUserCategories(user?.id)
+  const replaceUserCategories = useReplaceUserCategories()
+  const resetFromDept = useResetUserCategoriesFromDept()
 
   const initialFullName = user?.full_name ?? ''
   const initialEmail = user?.email ?? ''
@@ -250,8 +260,16 @@ function UserFormModal({
   const [password, setPassword] = useState('')
   const [role, setRole] = useState<UserRole>(initialRole)
   const [departmentId, setDepartmentId] = useState<string>(initialDeptId)
+  const [categoryIds, setCategoryIds] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
+
+  // Quando arrivano le categorie dell'utente da edit, le carichiamo
+  useEffect(() => {
+    if (mode === 'edit' && userCategoryIds.length > 0) {
+      setCategoryIds(userCategoryIds)
+    }
+  }, [mode, userCategoryIds])
 
   // Default reparto se nuovo: il primo della lista per evitare valore vuoto
   useEffect(() => {
@@ -266,7 +284,10 @@ function UserFormModal({
     email !== initialEmail ||
     password !== '' ||
     role !== initialRole ||
-    departmentId !== initialDeptId
+    departmentId !== initialDeptId ||
+    (role === 'guest' &&
+      (categoryIds.length !== userCategoryIds.length ||
+        !categoryIds.every((id) => userCategoryIds.includes(id))))
 
   const handleAttemptClose = () => {
     if (isDirty && !manageMutation.isPending) {
@@ -305,8 +326,10 @@ function UserFormModal({
     }
 
     try {
+      let targetUserId: string | null = null
+
       if (mode === 'create') {
-        await manageMutation.mutateAsync({
+        const result = await manageMutation.mutateAsync({
           action: 'create',
           email: email.trim(),
           password,
@@ -314,6 +337,9 @@ function UserFormModal({
           role,
           department_id: departmentId || null,
         })
+        // L'edge function ritorna { user: ... }
+        targetUserId =
+          (result as { user?: { id?: string } } | undefined)?.user?.id ?? null
         toast.show('Utente creato')
       } else if (user) {
         await manageMutation.mutateAsync({
@@ -325,8 +351,18 @@ function UserFormModal({
           role,
           department_id: departmentId || null,
         })
+        targetUserId = user.id
         toast.show('Utente aggiornato')
       }
+
+      // Salva le categorie consultabili (solo per i guest)
+      if (targetUserId && role === 'guest') {
+        await replaceUserCategories.mutateAsync({
+          userId: targetUserId,
+          categoryIds,
+        })
+      }
+
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore sconosciuto')
@@ -342,7 +378,7 @@ function UserFormModal({
     >
       <form
         onSubmit={(e) => void handleSubmit(e)}
-        className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6 animate-slide-up"
+        className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6 animate-slide-up max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex justify-between items-center mb-5">
@@ -447,6 +483,94 @@ function UserFormModal({
               </select>
             </div>
           </div>
+
+          {/* Categorie consultabili — solo per i guest */}
+          {role === 'guest' && (
+            <div className="pt-2">
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  Categorie consultabili
+                </label>
+                {user && departmentId && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const ids = await resetFromDept.mutateAsync({
+                          userId: user.id,
+                          departmentId,
+                        })
+                        setCategoryIds(ids)
+                        toast.show('Categorie reimpostate dal reparto')
+                      } catch (err) {
+                        toast.show(
+                          err instanceof Error ? err.message : 'Errore',
+                          'error'
+                        )
+                      }
+                    }}
+                    className="text-xs font-semibold text-pienissimo-blue hover:text-pienissimo-dark"
+                  >
+                    Reimposta dal reparto
+                  </button>
+                )}
+              </div>
+              {categories.length === 0 ? (
+                <p className="text-xs text-slate-400 italic">
+                  Nessuna categoria definita.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {categories.map((c) => {
+                    const active = categoryIds.includes(c.id)
+                    return (
+                      <button
+                        type="button"
+                        key={c.id}
+                        onClick={() =>
+                          setCategoryIds((prev) =>
+                            prev.includes(c.id)
+                              ? prev.filter((x) => x !== c.id)
+                              : [...prev, c.id]
+                          )
+                        }
+                        className={cn(
+                          'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border transition-colors',
+                          active
+                            ? 'bg-pienissimo-blue text-white border-pienissimo-blue'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            'w-1.5 h-1.5 rounded-full',
+                            active ? 'bg-white' : c.color_class
+                          )}
+                        />
+                        {c.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+              <p className="mt-1.5 text-xs text-slate-400">
+                {mode === 'create'
+                  ? 'Se lasci vuoto, ereditano automaticamente le categorie default del reparto.'
+                  : 'Solo i task con queste categorie saranno visibili. I task senza categoria sono sempre visibili.'}
+              </p>
+            </div>
+          )}
+
+          {role !== 'guest' && (
+            <div className="pt-2 px-3 py-2 bg-pienissimo-50/40 border border-pienissimo-100 rounded-lg">
+              <p className="text-xs text-slate-600">
+                <span className="font-bold text-pienissimo-blue">
+                  {role === 'master' ? 'Master' : 'Admin'}:
+                </span>{' '}
+                vede tutti i task indipendentemente dalle categorie.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 mt-6">
