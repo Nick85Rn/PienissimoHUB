@@ -6,6 +6,7 @@ import {
   FilePlus,
   Users,
   Tag,
+  Building2,
   ShieldCheck,
   MessageCircle,
   MessageCircleOff,
@@ -13,7 +14,6 @@ import {
 import { useAuth } from '@/context/AuthContext'
 import { useUIPrefs } from '@/context/UIPrefsContext'
 import { cn, initialsOf } from '@/lib/utils'
-import { DEPARTMENT_LABELS } from '@/types/database'
 import { ZohoChat } from './ZohoChat'
 
 export default function Layout() {
@@ -68,6 +68,13 @@ export default function Layout() {
                 active={location.pathname === '/admin/categories'}
               >
                 Categorie
+              </SidebarLink>
+              <SidebarLink
+                to="/admin/departments"
+                icon={<Building2 size={18} />}
+                active={location.pathname === '/admin/departments'}
+              >
+                Reparti
               </SidebarLink>
               {isMaster && (
                 <SidebarLink
@@ -142,9 +149,7 @@ export default function Layout() {
                     ? 'Master'
                     : isAdmin
                       ? 'Admin'
-                      : profile
-                        ? DEPARTMENT_LABELS[profile.department]
-                        : ''}
+                      : profile?.department?.name ?? ''}
                 </p>
               </div>
             </div>

@@ -8,11 +8,11 @@ import {
 } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import type { Profile } from '@/types/database'
+import type { ProfileWithDepartment } from '@/types/database'
 
 interface AuthState {
   session: Session | null
-  profile: Profile | null
+  profile: ProfileWithDepartment | null
   loading: boolean
   isAdmin: boolean // include master
   isMaster: boolean
@@ -47,23 +47,28 @@ function purgeSupabaseStorage() {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
-  const [profile, setProfile] = useState<Profile | null>(null)
+  const [profile, setProfile] = useState<ProfileWithDepartment | null>(null)
   const [loading, setLoading] = useState(true)
   const initDoneRef = useRef(false)
 
-  const loadProfile = async (userId: string): Promise<Profile | null> => {
+  const loadProfile = async (
+    userId: string
+  ): Promise<ProfileWithDepartment | null> => {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('*')
+        .select(`
+          *,
+          department:department_id(name, color_class)
+        `)
         .eq('id', userId)
-        .maybeSingle<Profile>()
+        .maybeSingle()
 
       if (error) {
         console.error('[auth] loadProfile error:', error.message)
         return null
       }
-      return data
+      return (data ?? null) as unknown as ProfileWithDepartment | null
     } catch (err) {
       console.error('[auth] loadProfile exception:', err)
       return null

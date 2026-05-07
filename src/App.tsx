@@ -9,6 +9,7 @@ import NewTask from '@/pages/NewTask'
 import EditTask from '@/pages/EditTask'
 import TaskDetail from '@/pages/TaskDetail'
 import AdminCategories from '@/pages/AdminCategories'
+import AdminDepartments from '@/pages/AdminDepartments'
 import AdminUsers from '@/pages/AdminUsers'
 import Settings from '@/pages/Settings'
 
@@ -79,6 +80,14 @@ export default function App() {
           element={
             <AdminGuard isAdmin={isAdmin}>
               <AdminCategories />
+            </AdminGuard>
+          }
+        />
+        <Route
+          path="/admin/departments"
+          element={
+            <AdminGuard isAdmin={isAdmin}>
+              <AdminDepartments />
             </AdminGuard>
           }
         />

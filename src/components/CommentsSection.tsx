@@ -10,7 +10,6 @@ import {
 import { ConfirmDialog } from './ConfirmDialog'
 import { Spinner } from './Spinner'
 import { cn, formatRelative, initialsOf } from '@/lib/utils'
-import { DEPARTMENT_LABELS } from '@/types/database'
 import type { CommentWithAuthor } from '@/types/database'
 
 export function CommentsSection({ taskId }: { taskId: string }) {
@@ -95,7 +94,7 @@ export function CommentsSection({ taskId }: { taskId: string }) {
                     </span>
                     {c.author?.department && (
                       <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-                        {DEPARTMENT_LABELS[c.author.department]}
+                        {c.author.department.name}
                       </span>
                     )}
                     <span className="text-xs text-slate-400">·</span>

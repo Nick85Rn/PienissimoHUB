@@ -4,14 +4,16 @@ import type { Task, TaskWithRelations } from '@/types/database'
 
 const TASKS_KEY = ['tasks'] as const
 
-// PostgREST embedding hint:
-// - category_id ha una sola FK (verso categories), basta il nome del campo.
-// - author_id ne ha DUE (auth.users e profiles), serve specificare il
-//   constraint esplicito tasks_author_profile_fkey.
 const TASK_SELECT = `
   *,
   category:category_id(name, color_class),
-  author:profiles!tasks_author_profile_fkey(full_name, department)
+  author:profiles!tasks_author_profile_fkey(
+    full_name,
+    department:department_id(name, color_class)
+  ),
+  task_departments(
+    department:department_id(id, name, color_class)
+  )
 `
 
 interface TaskFilters {
@@ -68,29 +70,50 @@ export function useTask(id: string | undefined) {
         .select(TASK_SELECT)
         .eq('id', id)
         .maybeSingle()
-
       if (error) throw error
       return data as unknown as TaskWithRelations | null
     },
   })
 }
 
-type TaskInsert = Omit<
+// =====================================================================
+// Mutation: gestiscono anche la tabella di join task_departments
+// =====================================================================
+
+type TaskInsertCore = Omit<
   Task,
   'id' | 'created_at' | 'updated_at' | 'published_at' | 'excerpt'
 > & { excerpt?: string | null }
 
+interface CreateTaskInput {
+  task: TaskInsertCore
+  department_ids: string[]
+}
+
 export function useCreateTask() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (input: TaskInsert): Promise<Task> => {
+    mutationFn: async (input: CreateTaskInput): Promise<Task> => {
       const { data, error } = await supabase
         .from('tasks')
-        .insert(input)
+        .insert(input.task)
         .select()
         .single()
       if (error) throw error
-      return data as Task
+      const created = data as Task
+
+      if (input.department_ids.length > 0) {
+        const rows = input.department_ids.map((dept_id) => ({
+          task_id: created.id,
+          department_id: dept_id,
+        }))
+        const { error: linkErr } = await supabase
+          .from('task_departments')
+          .insert(rows)
+        if (linkErr) throw linkErr
+      }
+
+      return created
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: TASKS_KEY })
@@ -98,23 +121,42 @@ export function useCreateTask() {
   })
 }
 
+interface UpdateTaskInput {
+  id: string
+  patch: Partial<TaskInsertCore>
+  department_ids: string[] // sempre passiamo l'intera lista, sostituisce
+}
+
 export function useUpdateTask() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({
-      id,
-      patch,
-    }: {
-      id: string
-      patch: Partial<TaskInsert>
-    }): Promise<Task> => {
+    mutationFn: async (input: UpdateTaskInput): Promise<Task> => {
       const { data, error } = await supabase
         .from('tasks')
-        .update(patch)
-        .eq('id', id)
+        .update(input.patch)
+        .eq('id', input.id)
         .select()
         .single()
       if (error) throw error
+
+      // Ricostruisci le righe in task_departments: cancella + insert
+      const { error: delErr } = await supabase
+        .from('task_departments')
+        .delete()
+        .eq('task_id', input.id)
+      if (delErr) throw delErr
+
+      if (input.department_ids.length > 0) {
+        const rows = input.department_ids.map((dept_id) => ({
+          task_id: input.id,
+          department_id: dept_id,
+        }))
+        const { error: insErr } = await supabase
+          .from('task_departments')
+          .insert(rows)
+        if (insErr) throw insErr
+      }
+
       return data as Task
     },
     onSuccess: (_data, variables) => {
@@ -128,6 +170,7 @@ export function useDeleteTask() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (id: string): Promise<void> => {
+      // task_departments e task_attachments hanno ON DELETE CASCADE
       const { error } = await supabase.from('tasks').delete().eq('id', id)
       if (error) throw error
     },

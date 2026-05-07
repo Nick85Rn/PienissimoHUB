@@ -3,11 +3,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import type { CommentWithAuthor } from '@/types/database'
 
-// Anche qui due FK su author_id (auth.users + profiles), specifichiamo
-// il constraint verso profiles.
+// PostgREST embedding: l'autore ha sia FK auth.users sia FK profiles.
+// Specifichiamo il constraint verso profiles e includiamo il reparto.
 const COMMENT_SELECT = `
   *,
-  author:profiles!comments_author_profile_fkey(full_name, department)
+  author:profiles!comments_author_profile_fkey(
+    full_name,
+    department:department_id(name)
+  )
 `
 
 export function useComments(taskId: string | undefined) {

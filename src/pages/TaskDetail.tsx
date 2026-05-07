@@ -27,8 +27,6 @@ import {
   BUG_STATUS_COLORS,
   BUG_SEVERITY_LABELS,
   BUG_SEVERITY_COLORS,
-  DEPARTMENT_LABELS,
-  DEPARTMENT_COLORS,
 } from '@/types/database'
 import { cn, formatDate } from '@/lib/utils'
 
@@ -199,7 +197,7 @@ export default function TaskDetail() {
               </span>
               {task.author?.department && (
                 <span className="text-xs text-slate-400 ml-0.5">
-                  · {DEPARTMENT_LABELS[task.author.department]}
+                  · {task.author.department.name}
                 </span>
               )}
             </span>
@@ -220,21 +218,21 @@ export default function TaskDetail() {
           </div>
 
           {/* Target departments */}
-          {task.target_departments.length > 0 && (
+          {task.task_departments && task.task_departments.length > 0 && (
             <div className="mt-5 pt-5 border-t border-slate-200/80">
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                 Utile per
               </p>
               <div className="flex flex-wrap gap-1.5">
-                {task.target_departments.map((d) => (
+                {task.task_departments.map((td) => (
                   <span
-                    key={d}
+                    key={td.department.id}
                     className={cn(
                       'text-xs font-bold px-2.5 py-1 rounded-md border',
-                      DEPARTMENT_COLORS[d]
+                      td.department.color_class
                     )}
                   >
-                    {DEPARTMENT_LABELS[d]}
+                    {td.department.name}
                   </span>
                 ))}
               </div>

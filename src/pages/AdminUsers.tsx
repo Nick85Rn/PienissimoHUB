@@ -13,16 +13,14 @@ import {
 import { useToast } from '@/context/ToastContext'
 import { useAuth } from '@/context/AuthContext'
 import { useUsers, useManageUser } from '@/hooks/useUsers'
+import { useDepartments } from '@/hooks/useDepartments'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Spinner } from '@/components/Spinner'
 import { EmptyState } from '@/components/EmptyState'
 import { cn, initialsOf } from '@/lib/utils'
-import {
-  type Profile,
-  type UserRole,
-  type Department,
-  DEPARTMENT_LABELS,
-  ALL_DEPARTMENTS,
+import type {
+  ProfileWithDepartment,
+  UserRole,
 } from '@/types/database'
 
 export default function AdminUsers() {
@@ -32,8 +30,8 @@ export default function AdminUsers() {
   const manageMutation = useManageUser()
 
   const [showCreateModal, setShowCreateModal] = useState(false)
-  const [editing, setEditing] = useState<Profile | null>(null)
-  const [toDelete, setToDelete] = useState<Profile | null>(null)
+  const [editing, setEditing] = useState<ProfileWithDepartment | null>(null)
+  const [toDelete, setToDelete] = useState<ProfileWithDepartment | null>(null)
 
   const handleDelete = async () => {
     if (!toDelete) return
@@ -110,9 +108,11 @@ export default function AdminUsers() {
                         <div
                           className={cn(
                             'w-9 h-9 rounded-full grid place-items-center font-bold text-xs shrink-0',
-                            u.role === 'admin'
-                              ? 'bg-pienissimo-blue text-white'
-                              : 'bg-slate-200 text-slate-700'
+                            u.role === 'master'
+                              ? 'bg-purple-600 text-white'
+                              : u.role === 'admin'
+                                ? 'bg-pienissimo-blue text-white'
+                                : 'bg-slate-200 text-slate-700'
                           )}
                         >
                           {initialsOf(u.full_name)}
@@ -152,7 +152,18 @@ export default function AdminUsers() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-slate-600 font-medium">
-                      {DEPARTMENT_LABELS[u.department]}
+                      {u.department ? (
+                        <span
+                          className={cn(
+                            'inline-flex items-center px-2 py-0.5 rounded text-xs font-bold border',
+                            u.department.color_class
+                          )}
+                        >
+                          {u.department.name}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-400 italic">—</span>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -216,43 +227,46 @@ export default function AdminUsers() {
   )
 }
 
-// =====================================================================
-// Modal create / edit user
-// =====================================================================
 function UserFormModal({
   mode,
   user,
   onClose,
 }: {
   mode: 'create' | 'edit'
-  user?: Profile
+  user?: ProfileWithDepartment
   onClose: () => void
 }) {
   const toast = useToast()
   const manageMutation = useManageUser()
+  const { data: departments = [] } = useDepartments()
 
   const initialFullName = user?.full_name ?? ''
   const initialEmail = user?.email ?? ''
   const initialRole: UserRole = user?.role ?? 'guest'
-  const initialDepartment: Department = user?.department ?? 'commerciale'
+  const initialDeptId = user?.department_id ?? ''
 
   const [fullName, setFullName] = useState(initialFullName)
   const [email, setEmail] = useState(initialEmail)
   const [password, setPassword] = useState('')
   const [role, setRole] = useState<UserRole>(initialRole)
-  const [department, setDepartment] = useState<Department>(initialDepartment)
+  const [departmentId, setDepartmentId] = useState<string>(initialDeptId)
   const [error, setError] = useState<string | null>(null)
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
 
-  // Dirty: il form è "sporco" se l'utente ha cambiato qualcosa rispetto
-  // ai valori iniziali. Per la modalità "create" basta che abbia toccato
-  // qualunque campo.
+  // Default reparto se nuovo: il primo della lista per evitare valore vuoto
+  useEffect(() => {
+    if (mode === 'create' && !departmentId && departments.length > 0) {
+      setDepartmentId(departments[0]?.id ?? '')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [departments])
+
   const isDirty =
     fullName !== initialFullName ||
     email !== initialEmail ||
     password !== '' ||
     role !== initialRole ||
-    department !== initialDepartment
+    departmentId !== initialDeptId
 
   const handleAttemptClose = () => {
     if (isDirty && !manageMutation.isPending) {
@@ -262,7 +276,6 @@ function UserFormModal({
     }
   }
 
-  // Gestisce ESC per chiudere il modal con conferma se dirty
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -299,7 +312,7 @@ function UserFormModal({
           password,
           full_name: fullName.trim(),
           role,
-          department,
+          department_id: departmentId || null,
         })
         toast.show('Utente creato')
       } else if (user) {
@@ -310,15 +323,13 @@ function UserFormModal({
           password: password || undefined,
           full_name: fullName.trim(),
           role,
-          department,
+          department_id: departmentId || null,
         })
         toast.show('Utente aggiornato')
       }
       onClose()
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Errore sconosciuto'
-      )
+      setError(err instanceof Error ? err.message : 'Errore sconosciuto')
     }
   }
 
@@ -384,7 +395,11 @@ function UserFormModal({
           </ModalField>
 
           <ModalField
-            label={mode === 'create' ? 'Password' : 'Nuova password (lascia vuoto per non modificare)'}
+            label={
+              mode === 'create'
+                ? 'Password'
+                : 'Nuova password (lascia vuoto per non modificare)'
+            }
             icon={<Lock size={16} className="text-slate-400" />}
           >
             <input
@@ -419,13 +434,14 @@ function UserFormModal({
                 Reparto
               </label>
               <select
-                value={department}
-                onChange={(e) => setDepartment(e.target.value as Department)}
+                value={departmentId}
+                onChange={(e) => setDepartmentId(e.target.value)}
                 className="form-select"
               >
-                {ALL_DEPARTMENTS.map((d) => (
-                  <option key={d} value={d}>
-                    {DEPARTMENT_LABELS[d]}
+                <option value="">— Nessuno —</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
                   </option>
                 ))}
               </select>

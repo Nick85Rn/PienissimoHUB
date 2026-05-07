@@ -13,6 +13,7 @@ import {
 import { useToast } from '@/context/ToastContext'
 import { useAuth } from '@/context/AuthContext'
 import { useCategories } from '@/hooks/useCategories'
+import { useDepartments } from '@/hooks/useDepartments'
 import { useCreateTask, useUpdateTask } from '@/hooks/useTasks'
 import {
   useTaskAttachments,
@@ -24,25 +25,22 @@ import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { makeExcerpt } from '@/lib/sanitize'
 import { cn } from '@/lib/utils'
 import {
-  type Task,
+  type TaskWithRelations,
   type TaskType,
-  type Department,
   type BugStatus,
   type BugSeverity,
   TASK_TYPE_LABELS,
   BUG_STATUS_LABELS,
   BUG_SEVERITY_LABELS,
-  DEPARTMENT_LABELS,
-  ALL_DEPARTMENTS,
 } from '@/types/database'
 
 interface TaskFormProps {
-  initial?: Task
+  initial?: TaskWithRelations
   mode: 'create' | 'edit'
 }
 
 interface AttachmentDraft {
-  id: string // client-side, solo per il React key
+  id: string
   label: string
   url: string
 }
@@ -56,19 +54,22 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
   const toast = useToast()
   const { profile } = useAuth()
   const { data: categories = [] } = useCategories()
+  const { data: departments = [] } = useDepartments()
   const createMutation = useCreateTask()
   const updateMutation = useUpdateTask()
   const replaceAttachments = useReplaceTaskAttachments()
   const { data: existingAttachments = [] } = useTaskAttachments(initial?.id)
+
+  const initialDepartmentIds =
+    initial?.task_departments?.map((td) => td.department.id) ?? []
 
   const [title, setTitle] = useState(initial?.title ?? '')
   const [content, setContent] = useState(initial?.content ?? '')
   const [type, setType] = useState<TaskType>(initial?.type ?? 'aggiornamento')
   const [categoryId, setCategoryId] = useState<string>(initial?.category_id ?? '')
   const [version, setVersion] = useState(initial?.version ?? '')
-  const [targetDepartments, setTargetDepartments] = useState<Department[]>(
-    initial?.target_departments ?? []
-  )
+  const [departmentIds, setDepartmentIds] =
+    useState<string[]>(initialDepartmentIds)
   const [bugStatus, setBugStatus] = useState<BugStatus | ''>(
     initial?.bug_status ?? ''
   )
@@ -81,58 +82,6 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
 
-  // Calcolo se il form è "dirty" rispetto ai valori iniziali
-  const isDirty = (() => {
-    if (mode === 'create') {
-      // In create: dirty se l'utente ha scritto QUALUNQUE cosa
-      return (
-        title.trim() !== '' ||
-        (content.trim() !== '' && content.trim() !== '<p></p>') ||
-        version.trim() !== '' ||
-        categoryId !== '' ||
-        targetDepartments.length > 0 ||
-        attachments.some((a) => a.label.trim() || a.url.trim()) ||
-        type !== 'aggiornamento' // se ha cambiato il tipo
-      )
-    }
-    // In edit: dirty se i valori sono cambiati rispetto a initial
-    if (!initial) return false
-    if (title !== initial.title) return true
-    if (content !== initial.content) return true
-    if (type !== initial.type) return true
-    if (categoryId !== (initial.category_id ?? '')) return true
-    if (version !== (initial.version ?? '')) return true
-    if (
-      targetDepartments.length !== initial.target_departments.length ||
-      !targetDepartments.every((d) => initial.target_departments.includes(d))
-    ) {
-      return true
-    }
-    if (bugStatus !== (initial.bug_status ?? '')) return true
-    if (bugSeverity !== (initial.bug_severity ?? '')) return true
-    // Allegati: confronto count e contenuto
-    if (attachments.length !== existingAttachments.length) return true
-    for (let i = 0; i < attachments.length; i++) {
-      const a = attachments[i]
-      const e = existingAttachments[i]
-      if (!a || !e) return true
-      if (a.label !== e.label || a.url !== e.url) return true
-    }
-    return false
-  })()
-
-  // Avviso del browser se l'utente prova a chiudere la tab/refresh
-  useUnsavedChangesWarning(isDirty && !isSubmitting)
-
-  const tryGoBack = () => {
-    if (isDirty && !isSubmitting) {
-      setShowLeaveConfirm(true)
-    } else {
-      navigate(-1)
-    }
-  }
-
-  // Quando arrivano gli allegati esistenti (in modalità edit), li carico
   useEffect(() => {
     if (mode === 'edit' && existingAttachments.length > 0) {
       setAttachments(
@@ -145,7 +94,6 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
     }
   }, [mode, existingAttachments])
 
-  // Pre-popola bug fields
   useEffect(() => {
     if (type === 'bugfix') {
       if (!bugStatus) setBugStatus('aperto')
@@ -157,9 +105,55 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type])
 
-  const toggleDepartment = (d: Department) => {
-    setTargetDepartments((prev) =>
-      prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]
+  const isDirty = (() => {
+    if (mode === 'create') {
+      return (
+        title.trim() !== '' ||
+        (content.trim() !== '' && content.trim() !== '<p></p>') ||
+        version.trim() !== '' ||
+        categoryId !== '' ||
+        departmentIds.length > 0 ||
+        attachments.some((a) => a.label.trim() || a.url.trim()) ||
+        type !== 'aggiornamento'
+      )
+    }
+    if (!initial) return false
+    if (title !== initial.title) return true
+    if (content !== initial.content) return true
+    if (type !== initial.type) return true
+    if (categoryId !== (initial.category_id ?? '')) return true
+    if (version !== (initial.version ?? '')) return true
+    if (
+      departmentIds.length !== initialDepartmentIds.length ||
+      !departmentIds.every((id) => initialDepartmentIds.includes(id))
+    ) {
+      return true
+    }
+    if (bugStatus !== (initial.bug_status ?? '')) return true
+    if (bugSeverity !== (initial.bug_severity ?? '')) return true
+    if (attachments.length !== existingAttachments.length) return true
+    for (let i = 0; i < attachments.length; i++) {
+      const a = attachments[i]
+      const e = existingAttachments[i]
+      if (!a || !e) return true
+      if (a.label !== e.label || a.url !== e.url) return true
+    }
+    return false
+  })()
+
+  useUnsavedChangesWarning(isDirty && !isSubmitting)
+
+  const tryGoBack = () => {
+    if (isDirty && !isSubmitting) {
+      setShowLeaveConfirm(true)
+    } else {
+      navigate(-1)
+    }
+  }
+
+  const toggleDepartment = (id: string) => {
+    setDepartmentIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     )
   }
 
@@ -206,7 +200,6 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
       return
     }
 
-    // Validazione allegati: ogni riga compilata deve avere sia label che url
     const filledAttachments = attachments.filter(
       (a) => a.label.trim() || a.url.trim()
     )
@@ -226,15 +219,13 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
 
     const excerpt = makeExcerpt(content, 180)
 
-    const payload = {
+    const taskPayload = {
       title: title.trim(),
       content,
       excerpt,
       type,
       category_id: categoryId || null,
       version: version.trim() || null,
-      attachment_url: null, // deprecato, usiamo task_attachments
-      target_departments: targetDepartments,
       status,
       bug_status: type === 'bugfix' ? (bugStatus as BugStatus) : null,
       bug_severity: type === 'bugfix' ? (bugSeverity as BugSeverity) : null,
@@ -244,16 +235,22 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
     try {
       let taskId: string
       if (mode === 'create') {
-        const created = await createMutation.mutateAsync(payload)
+        const created = await createMutation.mutateAsync({
+          task: taskPayload,
+          department_ids: departmentIds,
+        })
         taskId = created.id
       } else if (initial) {
-        await updateMutation.mutateAsync({ id: initial.id, patch: payload })
+        await updateMutation.mutateAsync({
+          id: initial.id,
+          patch: taskPayload,
+          department_ids: departmentIds,
+        })
         taskId = initial.id
       } else {
         return
       }
 
-      // Salva gli allegati
       await replaceAttachments.mutateAsync({
         taskId,
         attachments: filledAttachments.map((a, idx) => ({
@@ -401,9 +398,7 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
               >
                 <option value="" disabled>Seleziona...</option>
                 {(Object.keys(BUG_STATUS_LABELS) as BugStatus[]).map((s) => (
-                  <option key={s} value={s}>
-                    {BUG_STATUS_LABELS[s]}
-                  </option>
+                  <option key={s} value={s}>{BUG_STATUS_LABELS[s]}</option>
                 ))}
               </select>
             </Field>
@@ -425,31 +420,36 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
 
         <Field
           label="Reparti interessati"
-          hint="Indica a chi è utile questo task (puramente informativo, non filtra la visibilità)"
+          hint="Indica a chi è utile questo task. Solo informativo, non filtra la visibilità."
         >
-          <div className="flex flex-wrap gap-2">
-            {ALL_DEPARTMENTS.map((d) => {
-              const active = targetDepartments.includes(d)
-              return (
-                <button
-                  type="button"
-                  key={d}
-                  onClick={() => toggleDepartment(d)}
-                  className={cn(
-                    'px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors',
-                    active
-                      ? 'bg-pienissimo-blue text-white border-pienissimo-blue'
-                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                  )}
-                >
-                  {DEPARTMENT_LABELS[d]}
-                </button>
-              )
-            })}
-          </div>
+          {departments.length === 0 ? (
+            <p className="text-xs text-slate-400 italic">
+              Nessun reparto definito. Vai su Reparti per crearli.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {departments.map((d) => {
+                const active = departmentIds.includes(d.id)
+                return (
+                  <button
+                    type="button"
+                    key={d.id}
+                    onClick={() => toggleDepartment(d.id)}
+                    className={cn(
+                      'px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors',
+                      active
+                        ? 'bg-pienissimo-blue text-white border-pienissimo-blue'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    )}
+                  >
+                    {d.name}
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </Field>
 
-        {/* Allegati multipli */}
         <Field
           label="Link e allegati"
           hint="Aggiungi tutti i link utili: documentazione, video, screenshot, ecc."

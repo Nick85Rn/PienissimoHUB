@@ -19,8 +19,6 @@ I "reparti" sono **etichette informative** che indicano a chi è utile un task �
 - **Backend / DB**: Supabase (Postgres + RLS + Auth + Edge Functions + Realtime)
 - **Routing**: react-router-dom 6
 
----
-
 ## Setup locale
 
 ### 1. Prerequisiti
@@ -47,9 +45,13 @@ cp .env.example .env
 
 ### 3. Inizializza il database
 
-Apri il SQL Editor di Supabase (**Database > SQL Editor > New query**) e copia-incolla **tutto** il contenuto di `supabase/migrations/001_initial_schema.sql`. Esegui.
+Apri il SQL Editor di Supabase (**Database > SQL Editor > New query**). Esegui le migration **in ordine**:
 
-Questo crea: tipi enum, tabelle (`profiles`, `categories`, `tasks`, `comments`, `read_receipts`), trigger, funzioni helper, **policy RLS complete** e qualche categoria di default.
+1. `supabase/migrations/001_initial_schema.sql` — schema base
+2. `supabase/migrations/002_master_role_and_attachments.sql` — ruolo master + allegati multipli
+3. `supabase/migrations/003_departments_table.sql` — reparti come tabella editabile
+
+Ognuna è idempotente, quindi è sicuro rieseguirle.
 
 ### 4. Crea il primo admin
 

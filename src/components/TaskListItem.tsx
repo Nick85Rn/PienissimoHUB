@@ -16,8 +16,6 @@ import {
   BUG_STATUS_LABELS,
   BUG_SEVERITY_COLORS,
   BUG_SEVERITY_LABELS,
-  DEPARTMENT_LABELS,
-  DEPARTMENT_COLORS,
 } from '@/types/database'
 import { cn, formatRelative } from '@/lib/utils'
 
@@ -36,6 +34,8 @@ export function TaskListItem({
   onEdit,
   onDelete,
 }: TaskListItemProps) {
+  const departments = task.task_departments?.map((td) => td.department) ?? []
+
   return (
     <Link
       to={`/task/${task.id}`}
@@ -47,7 +47,6 @@ export function TaskListItem({
       )}
     >
       <div className="flex items-start gap-4">
-        {/* Indicatore non letto */}
         <div className="pt-1.5 shrink-0">
           {unread ? (
             <span
@@ -59,9 +58,7 @@ export function TaskListItem({
           )}
         </div>
 
-        {/* Contenuto principale */}
         <div className="flex-1 min-w-0">
-          {/* Riga 1: chip + titolo */}
           <div className="flex items-center flex-wrap gap-2 mb-1.5">
             <span
               className={cn(
@@ -123,8 +120,8 @@ export function TaskListItem({
 
           <h3
             className={cn(
-              'text-base md:text-lg font-bold text-slate-900 leading-snug truncate group-hover:text-pienissimo-blue transition-colors',
-              unread ? 'font-bold' : 'font-semibold'
+              'text-base md:text-lg leading-snug truncate group-hover:text-pienissimo-blue transition-colors',
+              unread ? 'font-bold text-slate-900' : 'font-semibold text-slate-900'
             )}
           >
             {task.title}
@@ -136,7 +133,6 @@ export function TaskListItem({
             </p>
           )}
 
-          {/* Riga footer: meta + reparti */}
           <div className="flex items-center flex-wrap gap-x-4 gap-y-1.5 mt-2.5 text-xs text-slate-500">
             <span className="flex items-center gap-1.5">
               <Calendar size={11} className="text-slate-400" />
@@ -149,22 +145,22 @@ export function TaskListItem({
               </span>
             </span>
 
-            {task.target_departments.length > 0 && (
+            {departments.length > 0 && (
               <div className="flex items-center gap-1 flex-wrap">
-                {task.target_departments.slice(0, 4).map((d) => (
+                {departments.slice(0, 4).map((d) => (
                   <span
-                    key={d}
+                    key={d.id}
                     className={cn(
                       'text-[10px] font-bold px-1.5 py-0.5 rounded border',
-                      DEPARTMENT_COLORS[d]
+                      d.color_class
                     )}
                   >
-                    {DEPARTMENT_LABELS[d]}
+                    {d.name}
                   </span>
                 ))}
-                {task.target_departments.length > 4 && (
+                {departments.length > 4 && (
                   <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-slate-500 border border-slate-200">
-                    +{task.target_departments.length - 4}
+                    +{departments.length - 4}
                   </span>
                 )}
               </div>
@@ -172,7 +168,6 @@ export function TaskListItem({
           </div>
         </div>
 
-        {/* Azioni admin / chevron */}
         <div className="flex items-center gap-1 shrink-0 self-center">
           {isAdmin && onEdit && onDelete && (
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

@@ -1,19 +1,25 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
-import type { Profile, UserRole, Department } from '@/types/database'
+import type {
+  ProfileWithDepartment,
+  UserRole,
+} from '@/types/database'
 
 const USERS_KEY = ['users'] as const
 
 export function useUsers() {
   return useQuery({
     queryKey: USERS_KEY,
-    queryFn: async (): Promise<Profile[]> => {
+    queryFn: async (): Promise<ProfileWithDepartment[]> => {
       const { data, error } = await supabase
         .from('profiles')
-        .select('*')
+        .select(`
+          *,
+          department:department_id(name, color_class)
+        `)
         .order('full_name')
       if (error) throw error
-      return (data ?? []) as Profile[]
+      return (data ?? []) as unknown as ProfileWithDepartment[]
     },
   })
 }
@@ -25,15 +31,9 @@ interface ManageUserPayload {
   password?: string
   full_name?: string
   role?: UserRole
-  department?: Department
+  department_id?: string | null
 }
 
-/**
- * Wrapper attorno alla Edge Function admin-update-user.
- * Tutte le operazioni sensibili (create/update credenziali/delete utente)
- * passano da qui, NON da supabase.auth.admin (che richiederebbe la
- * service_role key nel frontend = vietato).
- */
 export function useManageUser() {
   const qc = useQueryClient()
   return useMutation({

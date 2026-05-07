@@ -5,7 +5,6 @@ import { useToast } from '@/context/ToastContext'
 import { supabase } from '@/lib/supabase'
 import { Spinner } from '@/components/Spinner'
 import { initialsOf, cn } from '@/lib/utils'
-import { DEPARTMENT_LABELS } from '@/types/database'
 
 export default function Settings() {
   const { profile, isAdmin, isMaster, refresh } = useAuth()
@@ -123,7 +122,7 @@ export default function Settings() {
               </span>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600">
                 <Building2 size={10} />
-                {DEPARTMENT_LABELS[profile.department]}
+                {profile.department?.name ?? 'Nessun reparto'}
               </span>
             </div>
           </div>
