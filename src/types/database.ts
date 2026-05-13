@@ -62,7 +62,6 @@ export interface Task {
   title: string
   excerpt: string | null
   content: string
-  type: TaskType
   category_id: string | null
   version: string | null
   status: TaskStatus
@@ -89,6 +88,7 @@ export interface TaskWithRelations extends Task {
     department: Pick<Department, 'name' | 'color_class'> | null
   } | null
   task_departments: { department: Pick<Department, 'id' | 'name' | 'color_class'> }[]
+  task_types: { type: TaskType }[]
 }
 
 export interface Comment {
