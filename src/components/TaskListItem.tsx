@@ -35,6 +35,8 @@ export function TaskListItem({
   onDelete,
 }: TaskListItemProps) {
   const departments = task.task_departments?.map((td) => td.department) ?? []
+  const taskTypes = task.task_types?.map((t) => t.type) ?? []
+  const hasBugfix = taskTypes.includes('bugfix')
 
   return (
     <Link
@@ -60,14 +62,17 @@ export function TaskListItem({
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center flex-wrap gap-2 mb-1.5">
-            <span
-              className={cn(
-                'inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider shrink-0',
-                TASK_TYPE_COLORS[task.type]
-              )}
-            >
-              {TASK_TYPE_LABELS[task.type]}
-            </span>
+            {taskTypes.map((t) => (
+              <span
+                key={t}
+                className={cn(
+                  'inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider shrink-0',
+                  TASK_TYPE_COLORS[t]
+                )}
+              >
+                {TASK_TYPE_LABELS[t]}
+              </span>
+            ))}
 
             {task.category && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-50 border border-slate-200 text-slate-600 rounded text-[10px] font-semibold shrink-0">
@@ -87,7 +92,7 @@ export function TaskListItem({
               </span>
             )}
 
-            {task.type === 'bugfix' && task.bug_severity && (
+            {hasBugfix && task.bug_severity && (
               <span
                 className={cn(
                   'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase shrink-0',
@@ -99,7 +104,7 @@ export function TaskListItem({
               </span>
             )}
 
-            {task.type === 'bugfix' && task.bug_status && (
+            {hasBugfix && task.bug_status && (
               <span
                 className={cn(
                   'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border shrink-0',
