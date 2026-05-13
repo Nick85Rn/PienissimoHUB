@@ -129,14 +129,17 @@ export default function TaskDetail() {
           )}
 
           <div className="flex flex-wrap items-center gap-2 mb-5">
-            <span
-              className={cn(
-                'inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold',
-                TASK_TYPE_COLORS[task.type]
-              )}
-            >
-              {TASK_TYPE_LABELS[task.type]}
-            </span>
+            {task.task_types?.map((tt) => (
+              <span
+                key={tt.type}
+                className={cn(
+                  'inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold',
+                  TASK_TYPE_COLORS[tt.type]
+                )}
+              >
+                {TASK_TYPE_LABELS[tt.type]}
+              </span>
+            ))}
 
             {task.category && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-white border border-slate-200 text-slate-700 rounded-md text-xs font-semibold shadow-sm">
@@ -162,7 +165,8 @@ export default function TaskDetail() {
           </h1>
 
           {/* Bug-specific info */}
-          {task.type === 'bugfix' && (task.bug_status || task.bug_severity) && (
+          {task.task_types?.some((t) => t.type === 'bugfix') &&
+            (task.bug_status || task.bug_severity) && (
             <div className="flex flex-wrap items-center gap-2 mb-5">
               {task.bug_status && (
                 <span
