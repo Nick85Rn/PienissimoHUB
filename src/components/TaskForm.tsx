@@ -30,6 +30,7 @@ import {
   type BugStatus,
   type BugSeverity,
   TASK_TYPE_LABELS,
+  TASK_TYPE_COLORS,
   BUG_STATUS_LABELS,
   BUG_SEVERITY_LABELS,
 } from '@/types/database'
@@ -49,6 +50,14 @@ function makeId() {
   return Math.random().toString(36).slice(2)
 }
 
+const ALL_TASK_TYPES: TaskType[] = [
+  'aggiornamento',
+  'release',
+  'bugfix',
+  'guida',
+  'comunicazione',
+]
+
 export function TaskForm({ initial, mode }: TaskFormProps) {
   const navigate = useNavigate()
   const toast = useToast()
@@ -62,10 +71,12 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
 
   const initialDepartmentIds =
     initial?.task_departments?.map((td) => td.department.id) ?? []
+  const initialTypes: TaskType[] =
+    initial?.task_types?.map((t) => t.type) ?? ['aggiornamento']
 
   const [title, setTitle] = useState(initial?.title ?? '')
   const [content, setContent] = useState(initial?.content ?? '')
-  const [type, setType] = useState<TaskType>(initial?.type ?? 'aggiornamento')
+  const [types, setTypes] = useState<TaskType[]>(initialTypes)
   const [categoryId, setCategoryId] = useState<string>(initial?.category_id ?? '')
   const [version, setVersion] = useState(initial?.version ?? '')
   const [departmentIds, setDepartmentIds] =
@@ -82,6 +93,8 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
 
+  const hasBugfix = types.includes('bugfix')
+
   useEffect(() => {
     if (mode === 'edit' && existingAttachments.length > 0) {
       setAttachments(
@@ -94,8 +107,9 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
     }
   }, [mode, existingAttachments])
 
+  // Quando "bugfix" entra/esce dai tipi, gestisco i campi correlati
   useEffect(() => {
-    if (type === 'bugfix') {
+    if (hasBugfix) {
       if (!bugStatus) setBugStatus('aperto')
       if (!bugSeverity) setBugSeverity('media')
     } else {
@@ -103,7 +117,18 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
       setBugSeverity('')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [type])
+  }, [hasBugfix])
+
+  const toggleType = (t: TaskType) => {
+    setTypes((prev) => {
+      // Garantisce sempre almeno 1 tipo
+      if (prev.includes(t)) {
+        if (prev.length === 1) return prev // non lasciare il task senza tipo
+        return prev.filter((x) => x !== t)
+      }
+      return [...prev, t]
+    })
+  }
 
   const isDirty = (() => {
     if (mode === 'create') {
@@ -114,13 +139,19 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
         categoryId !== '' ||
         departmentIds.length > 0 ||
         attachments.some((a) => a.label.trim() || a.url.trim()) ||
-        type !== 'aggiornamento'
+        types.length !== 1 ||
+        types[0] !== 'aggiornamento'
       )
     }
     if (!initial) return false
     if (title !== initial.title) return true
     if (content !== initial.content) return true
-    if (type !== initial.type) return true
+    if (
+      types.length !== initialTypes.length ||
+      !types.every((t) => initialTypes.includes(t))
+    ) {
+      return true
+    }
     if (categoryId !== (initial.category_id ?? '')) return true
     if (version !== (initial.version ?? '')) return true
     if (
@@ -194,7 +225,12 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
       window.scrollTo({ top: 0, behavior: 'smooth' })
       return
     }
-    if (type === 'bugfix' && (!bugStatus || !bugSeverity)) {
+    if (types.length === 0) {
+      setError('Seleziona almeno un tipo.')
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
+    if (hasBugfix && (!bugStatus || !bugSeverity)) {
       setError('Per i bug fix specifica stato e severità.')
       window.scrollTo({ top: 0, behavior: 'smooth' })
       return
@@ -223,12 +259,11 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
       title: title.trim(),
       content,
       excerpt,
-      type,
       category_id: categoryId || null,
       version: version.trim() || null,
       status,
-      bug_status: type === 'bugfix' ? (bugStatus as BugStatus) : null,
-      bug_severity: type === 'bugfix' ? (bugSeverity as BugSeverity) : null,
+      bug_status: hasBugfix ? (bugStatus as BugStatus) : null,
+      bug_severity: hasBugfix ? (bugSeverity as BugSeverity) : null,
       author_id: profile.id,
     }
 
@@ -238,6 +273,7 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
         const created = await createMutation.mutateAsync({
           task: taskPayload,
           department_ids: departmentIds,
+          types,
         })
         taskId = created.id
       } else if (initial) {
@@ -245,6 +281,7 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
           id: initial.id,
           patch: taskPayload,
           department_ids: departmentIds,
+          types,
         })
         taskId = initial.id
       } else {
@@ -339,29 +376,34 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
           className="w-full text-2xl md:text-3xl font-bold text-slate-900 placeholder:text-slate-300 outline-none border-b border-transparent focus:border-slate-200 pb-2 transition-colors"
         />
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50/50 p-5 rounded-xl border border-slate-100">
-          <Field label="Tipo *">
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value as TaskType)}
-              className="form-select"
-            >
-              {(
-                [
-                  'aggiornamento',
-                  'release',
-                  'bugfix',
-                  'guida',
-                  'comunicazione',
-                ] as TaskType[]
-              ).map((t) => (
-                <option key={t} value={t}>
+        {/* Tipi (multi-select) */}
+        <Field
+          label="Tipi *"
+          hint="Seleziona uno o più tipi che descrivono il task."
+        >
+          <div className="flex flex-wrap gap-2">
+            {ALL_TASK_TYPES.map((t) => {
+              const active = types.includes(t)
+              return (
+                <button
+                  type="button"
+                  key={t}
+                  onClick={() => toggleType(t)}
+                  className={cn(
+                    'px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors',
+                    active
+                      ? cn(TASK_TYPE_COLORS[t], 'border-current')
+                      : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                  )}
+                >
                   {TASK_TYPE_LABELS[t]}
-                </option>
-              ))}
-            </select>
-          </Field>
+                </button>
+              )
+            })}
+          </div>
+        </Field>
 
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50/50 p-5 rounded-xl border border-slate-100">
           <Field label="Categoria">
             <select
               value={categoryId}
@@ -388,7 +430,7 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
           </Field>
         </div>
 
-        {type === 'bugfix' && (
+        {hasBugfix && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-red-50/30 p-5 rounded-xl border border-red-100">
             <Field label="Stato del bug *">
               <select
