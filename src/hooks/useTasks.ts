@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
-import type { Task, TaskWithRelations } from '@/types/database'
+import type { Task, TaskType, TaskWithRelations } from '@/types/database'
 
 const TASKS_KEY = ['tasks'] as const
 
@@ -13,13 +13,14 @@ const TASK_SELECT = `
   ),
   task_departments(
     department:department_id(id, name, color_class)
-  )
+  ),
+  task_types(type)
 `
 
 interface TaskFilters {
   search?: string
   category_id?: string | null
-  type?: string | null
+  type?: TaskType | null
   status?: 'all' | 'published' | 'draft' | 'archived'
   bug_status?: string | null
 }
@@ -40,21 +41,28 @@ export function useTasks(filters: TaskFilters = {}) {
       if (filters.category_id) {
         query = query.eq('category_id', filters.category_id)
       }
-      if (filters.type) {
-        query = query.eq('type', filters.type)
-      }
       if (filters.bug_status) {
         query = query.eq('bug_status', filters.bug_status)
       }
       if (filters.search) {
         query = query.or(
-          `title.ilike.%${filters.search}%,excerpt.ilike.%${filters.search}%`
+          `title.ilike.%${filters.search}%,excerpt.ilike.%${filters.search}%,content.ilike.%${filters.search}%`
         )
       }
 
       const { data, error } = await query
       if (error) throw error
-      return (data ?? []) as unknown as TaskWithRelations[]
+      let result = (data ?? []) as unknown as TaskWithRelations[]
+
+      // Il filtro per tipo si fa client-side: PostgREST non supporta filtri
+      // diretti sulle tabelle embedded. Per liste piccole-medie va benissimo.
+      if (filters.type) {
+        result = result.filter((t) =>
+          t.task_types?.some((tt) => tt.type === filters.type)
+        )
+      }
+
+      return result
     },
   })
 }
@@ -77,7 +85,7 @@ export function useTask(id: string | undefined) {
 }
 
 // =====================================================================
-// Mutation: gestiscono anche la tabella di join task_departments
+// Mutation
 // =====================================================================
 
 type TaskInsertCore = Omit<
@@ -88,6 +96,37 @@ type TaskInsertCore = Omit<
 interface CreateTaskInput {
   task: TaskInsertCore
   department_ids: string[]
+  types: TaskType[]
+}
+
+async function replaceTaskTypes(taskId: string, types: TaskType[]): Promise<void> {
+  const { error: delErr } = await supabase
+    .from('task_types')
+    .delete()
+    .eq('task_id', taskId)
+  if (delErr) throw delErr
+  if (types.length === 0) return
+  const rows = types.map((t) => ({ task_id: taskId, type: t }))
+  const { error: insErr } = await supabase.from('task_types').insert(rows)
+  if (insErr) throw insErr
+}
+
+async function replaceTaskDepartments(
+  taskId: string,
+  deptIds: string[]
+): Promise<void> {
+  const { error: delErr } = await supabase
+    .from('task_departments')
+    .delete()
+    .eq('task_id', taskId)
+  if (delErr) throw delErr
+  if (deptIds.length === 0) return
+  const rows = deptIds.map((dept_id) => ({
+    task_id: taskId,
+    department_id: dept_id,
+  }))
+  const { error: insErr } = await supabase.from('task_departments').insert(rows)
+  if (insErr) throw insErr
 }
 
 export function useCreateTask() {
@@ -102,15 +141,9 @@ export function useCreateTask() {
       if (error) throw error
       const created = data as Task
 
+      await replaceTaskTypes(created.id, input.types)
       if (input.department_ids.length > 0) {
-        const rows = input.department_ids.map((dept_id) => ({
-          task_id: created.id,
-          department_id: dept_id,
-        }))
-        const { error: linkErr } = await supabase
-          .from('task_departments')
-          .insert(rows)
-        if (linkErr) throw linkErr
+        await replaceTaskDepartments(created.id, input.department_ids)
       }
 
       return created
@@ -124,7 +157,8 @@ export function useCreateTask() {
 interface UpdateTaskInput {
   id: string
   patch: Partial<TaskInsertCore>
-  department_ids: string[] // sempre passiamo l'intera lista, sostituisce
+  department_ids: string[]
+  types: TaskType[]
 }
 
 export function useUpdateTask() {
@@ -139,23 +173,8 @@ export function useUpdateTask() {
         .single()
       if (error) throw error
 
-      // Ricostruisci le righe in task_departments: cancella + insert
-      const { error: delErr } = await supabase
-        .from('task_departments')
-        .delete()
-        .eq('task_id', input.id)
-      if (delErr) throw delErr
-
-      if (input.department_ids.length > 0) {
-        const rows = input.department_ids.map((dept_id) => ({
-          task_id: input.id,
-          department_id: dept_id,
-        }))
-        const { error: insErr } = await supabase
-          .from('task_departments')
-          .insert(rows)
-        if (insErr) throw insErr
-      }
+      await replaceTaskTypes(input.id, input.types)
+      await replaceTaskDepartments(input.id, input.department_ids)
 
       return data as Task
     },
@@ -170,7 +189,6 @@ export function useDeleteTask() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (id: string): Promise<void> => {
-      // task_departments e task_attachments hanno ON DELETE CASCADE
       const { error } = await supabase.from('tasks').delete().eq('id', id)
       if (error) throw error
     },
