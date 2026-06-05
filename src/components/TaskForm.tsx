@@ -20,8 +20,10 @@ import {
   useReplaceTaskAttachments,
 } from '@/hooks/useTaskAttachments'
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning'
+import { useEmailSettings } from '@/hooks/useEmailSettings'
 import { RichTextEditor } from '@/components/RichTextEditor'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { PublishNotifyDialog } from '@/components/PublishNotifyDialog'
 import { makeExcerpt } from '@/lib/sanitize'
 import { cn } from '@/lib/utils'
 import {
@@ -64,6 +66,7 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
   const { profile } = useAuth()
   const { data: categories = [] } = useCategories()
   const { data: departments = [] } = useDepartments()
+  const { data: emailSettings } = useEmailSettings()
   const createMutation = useCreateTask()
   const updateMutation = useUpdateTask()
   const replaceAttachments = useReplaceTaskAttachments()
@@ -92,6 +95,12 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
+  const [notifyDialog, setNotifyDialog] = useState<{
+    taskId: string
+    taskTitle: string
+    categoryId: string | null
+    departmentIds: string[]
+  } | null>(null)
 
   const hasBugfix = types.includes('bugfix')
 
@@ -123,7 +132,7 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
     setTypes((prev) => {
       // Garantisce sempre almeno 1 tipo
       if (prev.includes(t)) {
-        if (prev.length === 1) return prev // non lasciare il task senza tipo
+        if (prev.length === 1) return prev
         return prev.filter((x) => x !== t)
       }
       return [...prev, t]
@@ -302,7 +311,19 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
           ? mode === 'create' ? 'Task pubblicato' : 'Modifiche pubblicate'
           : mode === 'create' ? 'Bozza salvata' : 'Modifiche salvate in bozza'
       )
-      navigate(`/task/${taskId}`)
+
+      // Se ho pubblicato (non bozza) E le notifiche email sono attive,
+      // apro il modal prima di navigare. Altrimenti navigo subito.
+      if (status === 'published' && emailSettings?.enabled) {
+        setNotifyDialog({
+          taskId,
+          taskTitle: title.trim(),
+          categoryId: categoryId || null,
+          departmentIds,
+        })
+      } else {
+        navigate(`/task/${taskId}`)
+      }
     } catch (err) {
       setError(
         err instanceof Error
@@ -582,6 +603,25 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
         }}
         onCancel={() => setShowLeaveConfirm(false)}
       />
+
+      {notifyDialog && (
+        <PublishNotifyDialog
+          open={true}
+          taskId={notifyDialog.taskId}
+          taskTitle={notifyDialog.taskTitle}
+          taskCategoryId={notifyDialog.categoryId}
+          taskDepartmentIds={notifyDialog.departmentIds}
+          onClose={() => {
+            setNotifyDialog(null)
+            navigate(`/task/${notifyDialog.taskId}`)
+          }}
+          onSent={() => {
+            const id = notifyDialog.taskId
+            setNotifyDialog(null)
+            navigate(`/task/${id}`)
+          }}
+        />
+      )}
     </div>
   )
 }
