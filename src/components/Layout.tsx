@@ -7,6 +7,7 @@ import {
   Users,
   Tag,
   Building2,
+  Mail,
   ShieldCheck,
   MessageCircle,
   MessageCircleOff,
@@ -75,6 +76,13 @@ export default function Layout() {
                 active={location.pathname === '/admin/departments'}
               >
                 Reparti
+              </SidebarLink>
+              <SidebarLink
+                to="/admin/email-settings"
+                icon={<Mail size={18} />}
+                active={location.pathname === '/admin/email-settings'}
+              >
+                Impostazioni email
               </SidebarLink>
               {isMaster && (
                 <SidebarLink
