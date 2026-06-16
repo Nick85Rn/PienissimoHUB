@@ -9,6 +9,7 @@ import {
   Plus,
   Trash2,
   GripVertical,
+  Globe,
 } from 'lucide-react'
 import { useToast } from '@/context/ToastContext'
 import { useAuth } from '@/context/AuthContext'
@@ -90,6 +91,10 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
   const [bugSeverity, setBugSeverity] = useState<BugSeverity | ''>(
     initial?.bug_severity ?? ''
   )
+  // NUOVO: visibilità embed pubblico
+  const [visibleInEmbed, setVisibleInEmbed] = useState<boolean>(
+    initial?.visible_in_embed ?? false
+  )
 
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -116,7 +121,6 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
     }
   }, [mode, existingAttachments])
 
-  // Quando "bugfix" entra/esce dai tipi, gestisco i campi correlati
   useEffect(() => {
     if (hasBugfix) {
       if (!bugStatus) setBugStatus('aperto')
@@ -130,7 +134,6 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
 
   const toggleType = (t: TaskType) => {
     setTypes((prev) => {
-      // Garantisce sempre almeno 1 tipo
       if (prev.includes(t)) {
         if (prev.length === 1) return prev
         return prev.filter((x) => x !== t)
@@ -149,7 +152,8 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
         departmentIds.length > 0 ||
         attachments.some((a) => a.label.trim() || a.url.trim()) ||
         types.length !== 1 ||
-        types[0] !== 'aggiornamento'
+        types[0] !== 'aggiornamento' ||
+        visibleInEmbed !== false
       )
     }
     if (!initial) return false
@@ -171,6 +175,7 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
     }
     if (bugStatus !== (initial.bug_status ?? '')) return true
     if (bugSeverity !== (initial.bug_severity ?? '')) return true
+    if (visibleInEmbed !== (initial.visible_in_embed ?? false)) return true
     if (attachments.length !== existingAttachments.length) return true
     for (let i = 0; i < attachments.length; i++) {
       const a = attachments[i]
@@ -274,6 +279,7 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
       bug_status: hasBugfix ? (bugStatus as BugStatus) : null,
       bug_severity: hasBugfix ? (bugSeverity as BugSeverity) : null,
       author_id: profile.id,
+      visible_in_embed: visibleInEmbed,
     }
 
     try {
@@ -312,8 +318,6 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
           : mode === 'create' ? 'Bozza salvata' : 'Modifiche salvate in bozza'
       )
 
-      // Se ho pubblicato (non bozza) E le notifiche email sono attive,
-      // apro il modal prima di navigare. Altrimenti navigo subito.
       if (status === 'published' && emailSettings?.enabled) {
         setNotifyDialog({
           taskId,
@@ -512,6 +516,43 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
             </div>
           )}
         </Field>
+
+        {/* Visibilità embed pubblico */}
+        <div
+          className={cn(
+            'rounded-xl border p-4 transition-colors',
+            visibleInEmbed
+              ? 'bg-emerald-50/50 border-emerald-200'
+              : 'bg-slate-50/40 border-slate-200'
+          )}
+        >
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={visibleInEmbed}
+              onChange={(e) => setVisibleInEmbed(e.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-slate-300 text-pienissimo-blue focus:ring-pienissimo-blue/30 shrink-0"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <Globe
+                  size={14}
+                  className={
+                    visibleInEmbed ? 'text-emerald-600' : 'text-slate-400'
+                  }
+                />
+                <span className="text-sm font-semibold text-slate-900">
+                  Visibile anche nell'embed pubblico
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                {visibleInEmbed
+                  ? 'Questo task sarà visibile ai clienti che usano il backoffice Pienissimo PRO.'
+                  : 'Questo task sarà visibile SOLO agli utenti interni dell\'Hub (clienti esclusi).'}
+              </p>
+            </div>
+          </label>
+        </div>
 
         <Field
           label="Link e allegati"
