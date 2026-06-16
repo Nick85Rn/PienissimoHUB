@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Bug,
   AlertCircle,
+  Globe,
 } from 'lucide-react'
 import {
   type TaskWithRelations,
@@ -119,6 +120,17 @@ export function TaskListItem({
             {task.status === 'draft' && (
               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800">
                 Bozza
+              </span>
+            )}
+
+            {/* Badge embed pubblico */}
+            {task.visible_in_embed && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-700 border border-emerald-200 shrink-0"
+                title="Visibile anche nell'embed pubblico per i clienti"
+              >
+                <Globe size={9} />
+                Pubblico
               </span>
             )}
           </div>
