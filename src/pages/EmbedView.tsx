@@ -234,7 +234,7 @@ function EmbedTaskModal({
   const { data: task, isLoading, error } = useEmbedTaskDetail(accessKey, taskId)
 
   const sanitized = useMemo(
-    () => (task?.content ? sanitizeContent(task.content) : ''),
+    () => (task?.content ? sanitizeHtml(task.content) : ''),
     [task?.content]
   )
 
