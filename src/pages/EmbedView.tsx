@@ -8,11 +8,17 @@ import {
   X,
   ExternalLink,
   Lock,
+  Search,
+  Filter,
 } from 'lucide-react'
-import { useEmbedTasks, useEmbedTaskDetail } from '@/hooks/useEmbedSettings'
+import {
+  useEmbedTasks,
+  useEmbedTaskDetail,
+  type EmbedTask,
+} from '@/hooks/useEmbedSettings'
 import { Spinner } from '@/components/Spinner'
 import { cn, formatRelative } from '@/lib/utils'
-import { sanitizeHtml } from '@/lib/sanitize'
+import { sanitizeHtml, htmlToPlainText } from '@/lib/sanitize'
 import {
   TASK_TYPE_LABELS,
   TASK_TYPE_COLORS,
@@ -29,7 +35,8 @@ import {
  * Pagina embed pubblica: viene caricata in iframe dal backoffice
  * Pienissimo PRO. URL: /embed?key=ACCESS_KEY
  *
- * Niente sidebar, niente login, solo lista task e modal con il dettaglio.
+ * Include: barra di ricerca, filtri per tipo e categoria, contatore.
+ * Tutto il filtraggio è client-side perché operiamo su pochi task (max 100).
  */
 export default function EmbedView() {
   const [searchParams] = useSearchParams()
@@ -37,7 +44,83 @@ export default function EmbedView() {
 
   const { data: tasks, isLoading, error } = useEmbedTasks(accessKey)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [activeType, setActiveType] = useState<string | null>(null)
+  const [activeCategory, setActiveCategory] = useState<string | null>(null)
 
+  // Calcola la lista filtrata
+  const filteredTasks = useMemo(() => {
+    if (!tasks) return []
+    const q = search.trim().toLowerCase()
+
+    return tasks.filter((t) => {
+      // Filtro tipo
+      if (activeType && !t.task_types.includes(activeType)) {
+        return false
+      }
+      // Filtro categoria
+      if (activeCategory) {
+        if (activeCategory === '__none__' && t.category_name) return false
+        if (activeCategory !== '__none__' && t.category_name !== activeCategory) {
+          return false
+        }
+      }
+      // Search testo (titolo + excerpt + contenuto plain)
+      if (q) {
+        const inTitle = t.title.toLowerCase().includes(q)
+        const inExcerpt = (t.excerpt ?? '').toLowerCase().includes(q)
+        const contentPlain = htmlToPlainText(t.content ?? '').toLowerCase()
+        const inContent = contentPlain.includes(q)
+        if (!inTitle && !inExcerpt && !inContent) return false
+      }
+      return true
+    })
+  }, [tasks, activeType, activeCategory, search])
+
+  // Tipi presenti almeno una volta nei task caricati (per le pillole)
+  const availableTypes = useMemo(() => {
+    if (!tasks) return [] as string[]
+    const set = new Set<string>()
+    for (const t of tasks) {
+      for (const tt of t.task_types) set.add(tt)
+    }
+    return Array.from(set)
+  }, [tasks])
+
+  // Categorie presenti
+  const availableCategories = useMemo(() => {
+    if (!tasks) return [] as { name: string; color: string | null }[]
+    const map = new Map<string, string | null>()
+    let hasNone = false
+    for (const t of tasks) {
+      if (t.category_name) {
+        map.set(t.category_name, t.category_color_class ?? null)
+      } else {
+        hasNone = true
+      }
+    }
+    const list = Array.from(map.entries()).map(([name, color]) => ({
+      name,
+      color,
+    }))
+    list.sort((a, b) => a.name.localeCompare(b.name))
+    // "Senza categoria" in fondo se presente
+    if (hasNone) {
+      list.push({ name: '__none__', color: null })
+    }
+    return list
+  }, [tasks])
+
+  const hasActiveFilters =
+    Boolean(search) || Boolean(activeType) || Boolean(activeCategory)
+
+  const clearFilters = () => {
+    setSearch('')
+    setActiveType(null)
+    setActiveCategory(null)
+  }
+
+  // -------- Stati di errore / loading / vuoto --------
   if (!accessKey) {
     return <ErrorScreen message="Chiave di accesso mancante." />
   }
@@ -68,7 +151,8 @@ export default function EmbedView() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
       <div className="max-w-3xl mx-auto p-4 md:p-6">
-        <header className="mb-5">
+        {/* Header */}
+        <header className="mb-4">
           <div className="flex items-center gap-3">
             <img src="/logo.png" alt="Pienissimo PRO" className="h-8 w-auto" />
             <div>
@@ -82,18 +166,142 @@ export default function EmbedView() {
           </div>
         </header>
 
+        {/* Search + filtri */}
+        {tasks && tasks.length > 0 && (
+          <div className="mb-4 space-y-2.5">
+            <div className="relative">
+              <Search
+                size={14}
+                className="absolute left-3 top-2.5 text-slate-400 pointer-events-none"
+              />
+              <input
+                type="text"
+                placeholder="Cerca per titolo, contenuto..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-9 pr-9 py-2 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-pienissimo-blue/20 focus:border-pienissimo-blue transition-all"
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  className="absolute right-2 top-2 p-1 text-slate-400 hover:text-slate-700 rounded transition-colors"
+                  aria-label="Pulisci ricerca"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
+            {/* Pillole tipo */}
+            {availableTypes.length > 1 && (
+              <div className="flex flex-wrap gap-1.5">
+                <Pill
+                  active={activeType === null}
+                  onClick={() => setActiveType(null)}
+                >
+                  Tutti i tipi
+                </Pill>
+                {availableTypes.map((t) => {
+                  const key = t as TaskType
+                  return (
+                    <Pill
+                      key={t}
+                      active={activeType === t}
+                      onClick={() => setActiveType(activeType === t ? null : t)}
+                    >
+                      {TASK_TYPE_LABELS[key] ?? t}
+                    </Pill>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Pillole categoria */}
+            {availableCategories.length > 1 && (
+              <div className="flex flex-wrap gap-1.5">
+                <Pill
+                  active={activeCategory === null}
+                  onClick={() => setActiveCategory(null)}
+                >
+                  Tutte le categorie
+                </Pill>
+                {availableCategories.map((c) => (
+                  <Pill
+                    key={c.name}
+                    active={activeCategory === c.name}
+                    onClick={() =>
+                      setActiveCategory(activeCategory === c.name ? null : c.name)
+                    }
+                  >
+                    {c.color && c.name !== '__none__' && (
+                      <span
+                        className={cn('w-1.5 h-1.5 rounded-full', c.color)}
+                      />
+                    )}
+                    {c.name === '__none__' ? 'Senza categoria' : c.name}
+                  </Pill>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Contatore + clear filters */}
+        {tasks && tasks.length > 0 && (
+          <div className="flex items-center justify-between mb-2.5 text-xs text-slate-500 px-1">
+            <span>
+              {filteredTasks.length === 0
+                ? hasActiveFilters
+                  ? 'Nessun risultato'
+                  : 'Nessun aggiornamento'
+                : `${filteredTasks.length} ${
+                    filteredTasks.length === 1 ? 'aggiornamento' : 'aggiornamenti'
+                  }${
+                    hasActiveFilters && filteredTasks.length !== tasks.length
+                      ? ` su ${tasks.length}`
+                      : ''
+                  }`}
+            </span>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="flex items-center gap-1 text-pienissimo-blue hover:text-pienissimo-dark font-semibold"
+              >
+                <Filter size={11} /> Pulisci filtri
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Lista o stato vuoto */}
         {!tasks || tasks.length === 0 ? (
           <div className="bg-white border border-slate-200 rounded-xl p-8 text-center">
             <p className="text-sm text-slate-500">
               Non ci sono ancora aggiornamenti da mostrare.
             </p>
           </div>
+        ) : filteredTasks.length === 0 ? (
+          <div className="bg-white border border-slate-200 rounded-xl p-8 text-center">
+            <p className="text-sm text-slate-500">
+              Nessun aggiornamento corrisponde ai filtri.
+            </p>
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="mt-2 text-xs font-semibold text-pienissimo-blue hover:text-pienissimo-dark"
+            >
+              Pulisci filtri
+            </button>
+          </div>
         ) : (
           <ul className="space-y-2">
-            {tasks.map((t) => (
+            {filteredTasks.map((t) => (
               <EmbedTaskItem
                 key={t.id}
                 task={t}
+                searchHighlight={search.trim()}
                 onClick={() => setSelectedTaskId(t.id)}
               />
             ))}
@@ -117,21 +325,11 @@ export default function EmbedView() {
 // =====================================================================
 function EmbedTaskItem({
   task,
+  searchHighlight,
   onClick,
 }: {
-  task: {
-    id: string
-    title: string
-    excerpt: string | null
-    published_at: string | null
-    created_at: string
-    category_name: string | null
-    category_color_class: string | null
-    author_name: string | null
-    task_types: string[]
-    bug_status: BugStatus | null
-    bug_severity: BugSeverity | null
-  }
+  task: EmbedTask
+  searchHighlight: string
   onClick: () => void
 }) {
   const hasBugfix = task.task_types.includes('bugfix')
@@ -172,33 +370,33 @@ function EmbedTaskItem({
             <span
               className={cn(
                 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase',
-                BUG_SEVERITY_COLORS[task.bug_severity]
+                BUG_SEVERITY_COLORS[task.bug_severity as BugSeverity]
               )}
             >
               <AlertCircle size={9} />
-              {BUG_SEVERITY_LABELS[task.bug_severity]}
+              {BUG_SEVERITY_LABELS[task.bug_severity as BugSeverity]}
             </span>
           )}
           {hasBugfix && task.bug_status && (
             <span
               className={cn(
                 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border',
-                BUG_STATUS_COLORS[task.bug_status]
+                BUG_STATUS_COLORS[task.bug_status as BugStatus]
               )}
             >
               <Bug size={9} />
-              {BUG_STATUS_LABELS[task.bug_status]}
+              {BUG_STATUS_LABELS[task.bug_status as BugStatus]}
             </span>
           )}
         </div>
 
         <h3 className="text-sm md:text-base font-bold text-slate-900 leading-snug mb-1">
-          {task.title}
+          <Highlight text={task.title} query={searchHighlight} />
         </h3>
 
         {task.excerpt && (
           <p className="text-xs text-slate-500 line-clamp-2 mb-2">
-            {task.excerpt}
+            <Highlight text={task.excerpt} query={searchHighlight} />
           </p>
         )}
 
@@ -358,6 +556,66 @@ function EmbedTaskModal({
         )}
       </div>
     </div>
+  )
+}
+
+// =====================================================================
+// Componenti di supporto
+// =====================================================================
+
+function Pill({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border transition-colors',
+        active
+          ? 'bg-slate-900 text-white border-slate-900'
+          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+/**
+ * Evidenzia le occorrenze di `query` dentro `text`.
+ * Match case-insensitive. Sicuro per uso in JSX (niente dangerouslySetInnerHTML).
+ */
+function Highlight({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>
+  const q = query.trim()
+  if (!q) return <>{text}</>
+
+  // Escape regex special chars
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const parts = text.split(new RegExp(`(${escaped})`, 'gi'))
+
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.toLowerCase() === q.toLowerCase() ? (
+          <mark
+            key={i}
+            className="bg-yellow-200 text-slate-900 px-0.5 rounded"
+          >
+            {part}
+          </mark>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
   )
 }
 
