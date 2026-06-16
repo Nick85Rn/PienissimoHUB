@@ -65,6 +65,7 @@ export interface Task {
   category_id: string | null
   version: string | null
   status: TaskStatus
+  visible_in_embed: boolean
   bug_status: BugStatus | null
   bug_severity: BugSeverity | null
   author_id: string
