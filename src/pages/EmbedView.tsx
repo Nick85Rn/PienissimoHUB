@@ -12,7 +12,7 @@ import {
 import { useEmbedTasks, useEmbedTaskDetail } from '@/hooks/useEmbedSettings'
 import { Spinner } from '@/components/Spinner'
 import { cn, formatRelative } from '@/lib/utils'
-import { sanitizeContent } from '@/lib/sanitize'
+import { sanitizeHtml } from '@/lib/sanitize'
 import {
   TASK_TYPE_LABELS,
   TASK_TYPE_COLORS,
