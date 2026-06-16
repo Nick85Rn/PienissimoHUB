@@ -15,7 +15,7 @@
   to = "/index.html"
   status = 200
 
-# Security headers
+# Security headers di default per tutto il sito
 [[headers]]
   for = "/*"
   [headers.values]
@@ -23,3 +23,19 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+# Override per la rotta /embed: permette il caricamento in iframe
+# da qualsiasi origine (necessario per l'embed nel backoffice Pienissimo PRO).
+# IMPORTANTE: il valore "frame-ancestors *" della CSP sovrascrive
+# l'X-Frame-Options DENY definito sopra.
+[[headers]]
+  for = "/embed"
+  [headers.values]
+    X-Frame-Options = "ALLOWALL"
+    Content-Security-Policy = "frame-ancestors *"
+
+[[headers]]
+  for = "/embed/*"
+  [headers.values]
+    X-Frame-Options = "ALLOWALL"
+    Content-Security-Policy = "frame-ancestors *"
