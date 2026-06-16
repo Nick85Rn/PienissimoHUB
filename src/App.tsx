@@ -12,13 +12,50 @@ import AdminCategories from '@/pages/AdminCategories'
 import AdminDepartments from '@/pages/AdminDepartments'
 import AdminUsers from '@/pages/AdminUsers'
 import EmailSettings from '@/pages/EmailSettings'
+import EmbedSettings from '@/pages/EmbedSettings'
+import EmbedView from '@/pages/EmbedView'
 
 export default function App() {
   const { session, loading, isAdmin, isMaster } = useAuth()
 
+  return (
+    <Routes>
+      {/*
+       * Rotta /embed pubblica, fuori dal flusso auth.
+       * Viene caricata in iframe dal backoffice e l'autorizzazione
+       * avviene tramite access_key nel query string.
+       */}
+      <Route path="/embed" element={<EmbedView />} />
+
+      {/* Tutto il resto è protetto da login */}
+      <Route
+        path="*"
+        element={
+          <ProtectedApp
+            session={session}
+            loading={loading}
+            isAdmin={isAdmin}
+            isMaster={isMaster}
+          />
+        }
+      />
+    </Routes>
+  )
+}
+
+function ProtectedApp({
+  session,
+  loading,
+  isAdmin,
+  isMaster,
+}: {
+  session: unknown
+  loading: boolean
+  isAdmin: boolean
+  isMaster: boolean
+}) {
   if (loading) return <PageLoader />
 
-  // Utente non loggato: accede solo a /login
   if (!session) {
     return (
       <Routes>
@@ -28,7 +65,6 @@ export default function App() {
     )
   }
 
-  // Utente loggato
   return (
     <Routes>
       <Route path="/login" element={<Navigate to="/dashboard" replace />} />
@@ -76,6 +112,14 @@ export default function App() {
           element={
             <AdminGuard isAdmin={isAdmin}>
               <EmailSettings />
+            </AdminGuard>
+          }
+        />
+        <Route
+          path="/admin/embed"
+          element={
+            <AdminGuard isAdmin={isAdmin}>
+              <EmbedSettings />
             </AdminGuard>
           }
         />
