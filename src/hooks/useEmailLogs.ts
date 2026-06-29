@@ -148,3 +148,90 @@ export function useResendNotification() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: KEY }),
   })
 }
+
+/**
+ * Carica TUTTI i logs falliti (non paginati) corrispondenti ai filtri
+ * passati. Usato dal bottone "Rinvia tutti i falliti".
+ */
+export async function fetchAllFailedLogs(filters: {
+  search?: string
+  dateFrom?: string
+  dateTo?: string
+}): Promise<EmailLog[]> {
+  let query = supabase
+    .from('task_notifications')
+    .select('*')
+    .eq('status', 'failed')
+    .order('sent_at', { ascending: false })
+
+  if (filters.search) {
+    query = query.ilike('recipient_email', `%${filters.search}%`)
+  }
+  if (filters.dateFrom) {
+    query = query.gte('sent_at', filters.dateFrom)
+  }
+  if (filters.dateTo) {
+    query = query.lte('sent_at', filters.dateTo)
+  }
+
+  const { data, error } = await query
+  if (error) throw error
+  return (data ?? []) as EmailLog[]
+}
+
+/**
+ * Esegue il rinvio in massa, raggruppando per task_id per minimizzare
+ * il numero di chiamate all'edge function. Ritorna l'esito aggregato.
+ */
+export async function bulkResendNotifications(
+  failedLogs: EmailLog[],
+  onProgress?: (done: number, total: number) => void
+): Promise<{ sent: number; failed: number; skipped: number }> {
+  // Raggruppa per task_id
+  const byTask = new Map<string, string[]>()
+  for (const log of failedLogs) {
+    if (!log.task_id) continue
+    const list = byTask.get(log.task_id) ?? []
+    // Evita duplicati: stessa email allo stesso task
+    if (!list.includes(log.recipient_email)) {
+      list.push(log.recipient_email)
+    }
+    byTask.set(log.task_id, list)
+  }
+
+  let totalSent = 0
+  let totalFailed = 0
+  let totalSkipped = 0
+  let done = 0
+  const totalGroups = byTask.size
+
+  for (const [task_id, emails] of byTask) {
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        'send-task-notifications',
+        {
+          body: {
+            task_id,
+            recipient_emails: emails,
+            resend: true,
+          },
+        }
+      )
+      if (error) throw error
+      if (data?.error) {
+        // Task eliminato o errore generico: skip
+        totalSkipped += emails.length
+      } else {
+        const result = data as { sent: number; failed: number }
+        totalSent += result.sent ?? 0
+        totalFailed += result.failed ?? 0
+      }
+    } catch {
+      totalSkipped += emails.length
+    }
+    done++
+    onProgress?.(done, totalGroups)
+  }
+
+  return { sent: totalSent, failed: totalFailed, skipped: totalSkipped }
+}
