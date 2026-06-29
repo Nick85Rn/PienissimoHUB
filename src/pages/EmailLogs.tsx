@@ -16,11 +16,15 @@ import {
   useEmailLogs,
   useEmailStats,
   useResendNotification,
+  fetchAllFailedLogs,
+  bulkResendNotifications,
   type EmailLogEnriched,
 } from '@/hooks/useEmailLogs'
 import { useToast } from '@/context/ToastContext'
+import { useQueryClient } from '@tanstack/react-query'
 import { Spinner } from '@/components/Spinner'
 import { EmptyState } from '@/components/EmptyState'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { cn, formatRelative } from '@/lib/utils'
 
 type StatusFilter = 'all' | 'sent' | 'failed'
@@ -29,12 +33,22 @@ const PAGE_SIZE = 50
 
 export default function EmailLogs() {
   const toast = useToast()
+  const qc = useQueryClient()
   const [status, setStatus] = useState<StatusFilter>('all')
   const [search, setSearch] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [page, setPage] = useState(0)
   const [expandedError, setExpandedError] = useState<string | null>(null)
+
+  // Stati per il bulk resend
+  const [confirmBulkResend, setConfirmBulkResend] = useState<{
+    count: number
+  } | null>(null)
+  const [bulkProgress, setBulkProgress] = useState<{
+    done: number
+    total: number
+  } | null>(null)
 
   const filters = useMemo(
     () => ({
@@ -89,6 +103,74 @@ export default function EmailLogs() {
     }
   }
 
+  // Apre la conferma per il rinvio massivo
+  const openBulkResend = async () => {
+    try {
+      const failed = await fetchAllFailedLogs({
+        search: search.trim() || undefined,
+        dateFrom: dateFrom ? new Date(dateFrom).toISOString() : undefined,
+        dateTo: dateTo
+          ? new Date(dateTo + 'T23:59:59').toISOString()
+          : undefined,
+      })
+      if (failed.length === 0) {
+        toast.show("Nessuna email fallita da rinviare", 'info')
+        return
+      }
+      setConfirmBulkResend({ count: failed.length })
+    } catch (err) {
+      toast.show(
+        err instanceof Error ? err.message : 'Errore caricamento falliti',
+        'error'
+      )
+    }
+  }
+
+  // Esegue il rinvio massivo
+  const runBulkResend = async () => {
+    setConfirmBulkResend(null)
+    try {
+      const failed = await fetchAllFailedLogs({
+        search: search.trim() || undefined,
+        dateFrom: dateFrom ? new Date(dateFrom).toISOString() : undefined,
+        dateTo: dateTo
+          ? new Date(dateTo + 'T23:59:59').toISOString()
+          : undefined,
+      })
+      const totalGroups = new Set(failed.map((f) => f.task_id)).size
+      setBulkProgress({ done: 0, total: totalGroups })
+
+      const result = await bulkResendNotifications(failed, (done, total) => {
+        setBulkProgress({ done, total })
+      })
+
+      setBulkProgress(null)
+
+      // Toast con riepilogo
+      const parts: string[] = []
+      if (result.sent > 0) parts.push(`${result.sent} inviate`)
+      if (result.failed > 0) parts.push(`${result.failed} ancora fallite`)
+      if (result.skipped > 0) parts.push(`${result.skipped} saltate (task eliminati)`)
+      const msg = parts.join(', ') || 'Nessuna azione'
+
+      if (result.failed === 0 && result.skipped === 0) {
+        toast.show(`✓ ${msg}`)
+      } else if (result.sent === 0) {
+        toast.show(msg, 'error')
+      } else {
+        toast.show(msg, 'info')
+      }
+
+      void qc.invalidateQueries({ queryKey: ['email-logs'] })
+    } catch (err) {
+      setBulkProgress(null)
+      toast.show(
+        err instanceof Error ? err.message : 'Errore nel rinvio massivo',
+        'error'
+      )
+    }
+  }
+
   return (
     <div className="p-6 md:p-10 max-w-6xl mx-auto w-full">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
@@ -101,14 +183,49 @@ export default function EmailLogs() {
             i messaggi falliti.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void refetch()}
-          className="px-3 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 transition-colors flex items-center gap-2 shrink-0"
-        >
-          <RefreshCw size={14} /> Aggiorna
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Bottone rinvia tutti — visibile solo se ci sono falliti */}
+          {stats && stats.failed > 0 && (
+            <button
+              type="button"
+              onClick={() => void openBulkResend()}
+              disabled={bulkProgress !== null}
+              className="px-3 py-2 bg-pienissimo-blue text-white rounded-lg text-sm font-semibold hover:bg-pienissimo-dark transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Rinvia tutti i messaggi falliti (corrispondenti ai filtri attuali)"
+            >
+              <RefreshCw size={14} />
+              Rinvia falliti
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            className="px-3 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 transition-colors flex items-center gap-2"
+          >
+            <RefreshCw size={14} /> Aggiorna
+          </button>
+        </div>
       </header>
+
+      {/* Banner progress bulk resend */}
+      {bulkProgress && (
+        <div className="mb-6 bg-pienissimo-50 border border-pienissimo-200 rounded-xl p-4">
+          <div className="flex items-center gap-3 mb-2">
+            <Spinner size="sm" />
+            <p className="text-sm font-semibold text-pienissimo-blue">
+              Rinvio in corso... {bulkProgress.done} di {bulkProgress.total} task
+            </p>
+          </div>
+          <div className="w-full bg-pienissimo-100 rounded-full h-1.5 overflow-hidden">
+            <div
+              className="bg-pienissimo-blue h-full transition-all duration-300"
+              style={{
+                width: `${bulkProgress.total > 0 ? (bulkProgress.done / bulkProgress.total) * 100 : 0}%`,
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Stats ultime 7 giorni */}
       {stats && (
@@ -345,6 +462,21 @@ export default function EmailLogs() {
           )}
         </>
       )}
+
+      <ConfirmDialog
+        open={Boolean(confirmBulkResend)}
+        title="Rinviare tutti i messaggi falliti?"
+        message={
+          confirmBulkResend
+            ? `Stai per rinviare ${confirmBulkResend.count} email fallite (corrispondenti ai filtri di data e ricerca attuali). I task eliminati saranno saltati. L'operazione può richiedere fino a 1 minuto.`
+            : ''
+        }
+        variant="warning"
+        confirmLabel="Rinvia tutti"
+        cancelLabel="Annulla"
+        onConfirm={() => void runBulkResend()}
+        onCancel={() => setConfirmBulkResend(null)}
+      />
     </div>
   )
 }
