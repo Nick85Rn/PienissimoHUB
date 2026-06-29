@@ -15,6 +15,8 @@ export interface EmailLog {
 export interface EmailLogEnriched extends EmailLog {
   task: { id: string; title: string } | null
   sender_name: string | null
+  /** true se questo log è 'failed' ma c'è un invio successivo 'sent' */
+  resolved: boolean
 }
 
 interface LogFilters {
@@ -69,7 +71,7 @@ export function useEmailLogs(filters: LogFilters = {}) {
         task: { id: string; title: string } | null
       })[]
 
-      // 2. Recupero i nomi dei sender in una seconda query
+      // 2. Recupero i nomi dei sender
       const senderIds = Array.from(
         new Set(logs.map((l) => l.sent_by).filter((x): x is string => Boolean(x)))
       )
@@ -84,10 +86,27 @@ export function useEmailLogs(filters: LogFilters = {}) {
         )
       }
 
-      // 3. Merge
+      // 3. Cerco quali failed sono "risolti" (hanno un sent successivo)
+      const failedIds = logs
+        .filter((l) => l.status === 'failed')
+        .map((l) => l.id)
+
+      let resolvedSet = new Set<string>()
+      if (failedIds.length > 0) {
+        const { data: resolvedIds } = await supabase.rpc(
+          'get_resolved_log_ids',
+          { p_log_ids: failedIds }
+        )
+        if (Array.isArray(resolvedIds)) {
+          resolvedSet = new Set(resolvedIds as string[])
+        }
+      }
+
+      // 4. Merge
       const enriched: EmailLogEnriched[] = logs.map((l) => ({
         ...l,
         sender_name: l.sent_by ? (senderMap.get(l.sent_by) ?? null) : null,
+        resolved: resolvedSet.has(l.id),
       }))
 
       return { logs: enriched, total: count ?? 0 }
@@ -97,7 +116,9 @@ export function useEmailLogs(filters: LogFilters = {}) {
 }
 
 /**
- * Statistiche aggregate degli ultimi N giorni.
+ * Statistiche "effettive" degli ultimi N giorni.
+ * Per ogni coppia (task_id, recipient_email) conta solo l'ULTIMO tentativo.
+ * Così i falliti rinviati con successo non contano più nei "falliti".
  */
 export function useEmailStats(days = 7) {
   return useQuery({
@@ -106,23 +127,27 @@ export function useEmailStats(days = 7) {
       const since = new Date(
         Date.now() - days * 24 * 60 * 60 * 1000
       ).toISOString()
-      const { data, error } = await supabase
-        .from('task_notifications')
-        .select('status')
-        .gte('sent_at', since)
+
+      const { data, error } = await supabase.rpc('get_email_stats_effective', {
+        p_since: since,
+      })
+
       if (error) throw error
-      const rows = (data ?? []) as { status: 'sent' | 'failed' }[]
-      const sent = rows.filter((r) => r.status === 'sent').length
-      const failed = rows.filter((r) => r.status === 'failed').length
-      return { sent, failed, total: rows.length }
+
+      // La RPC restituisce una riga con sent, failed, total
+      const row = Array.isArray(data) ? data[0] : data
+      return {
+        sent: Number(row?.sent ?? 0),
+        failed: Number(row?.failed ?? 0),
+        total: Number(row?.total ?? 0),
+      }
     },
     staleTime: 1000 * 60,
   })
 }
 
 /**
- * Rinvia una notifica fallita ad un'email diretta (non più legata ad
- * un user_id, perché potrebbe non esistere più).
+ * Rinvia una notifica fallita ad un'email diretta.
  */
 export function useResendNotification() {
   const qc = useQueryClient()
@@ -150,8 +175,8 @@ export function useResendNotification() {
 }
 
 /**
- * Carica TUTTI i logs falliti (non paginati) corrispondenti ai filtri
- * passati. Usato dal bottone "Rinvia tutti i falliti".
+ * Carica TUTTI i logs falliti NON risolti (cioè quelli che non hanno
+ * un invio successivo 'sent'). Usato dal bottone "Rinvia tutti i falliti".
  */
 export async function fetchAllFailedLogs(filters: {
   search?: string
@@ -176,23 +201,33 @@ export async function fetchAllFailedLogs(filters: {
 
   const { data, error } = await query
   if (error) throw error
-  return (data ?? []) as EmailLog[]
+  const allFailed = (data ?? []) as EmailLog[]
+
+  // Filtra via i "risolti" (hanno già un sent successivo)
+  if (allFailed.length === 0) return []
+
+  const failedIds = allFailed.map((l) => l.id)
+  const { data: resolvedIds } = await supabase.rpc('get_resolved_log_ids', {
+    p_log_ids: failedIds,
+  })
+  const resolvedSet = new Set<string>(
+    Array.isArray(resolvedIds) ? (resolvedIds as string[]) : []
+  )
+
+  return allFailed.filter((l) => !resolvedSet.has(l.id))
 }
 
 /**
- * Esegue il rinvio in massa, raggruppando per task_id per minimizzare
- * il numero di chiamate all'edge function. Ritorna l'esito aggregato.
+ * Esegue il rinvio in massa, raggruppando per task_id.
  */
 export async function bulkResendNotifications(
   failedLogs: EmailLog[],
   onProgress?: (done: number, total: number) => void
 ): Promise<{ sent: number; failed: number; skipped: number }> {
-  // Raggruppa per task_id
   const byTask = new Map<string, string[]>()
   for (const log of failedLogs) {
     if (!log.task_id) continue
     const list = byTask.get(log.task_id) ?? []
-    // Evita duplicati: stessa email allo stesso task
     if (!list.includes(log.recipient_email)) {
       list.push(log.recipient_email)
     }
@@ -219,7 +254,6 @@ export async function bulkResendNotifications(
       )
       if (error) throw error
       if (data?.error) {
-        // Task eliminato o errore generico: skip
         totalSkipped += emails.length
       } else {
         const result = data as { sent: number; failed: number }
