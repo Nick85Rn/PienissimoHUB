@@ -8,6 +8,7 @@ import {
   Tag,
   Building2,
   Mail,
+  MailCheck,
   Code,
   ShieldCheck,
   MessageCircle,
@@ -82,6 +83,13 @@ export default function Layout() {
                 active={location.pathname === '/admin/email-settings'}
               >
                 Impostazioni email
+              </SidebarLink>
+              <SidebarLink
+                to="/admin/email-logs"
+                icon={<MailCheck size={18} />}
+                active={location.pathname === '/admin/email-logs'}
+              >
+                Logs email
               </SidebarLink>
               <SidebarLink
                 to="/admin/embed"
