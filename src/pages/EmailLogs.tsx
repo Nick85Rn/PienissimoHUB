@@ -5,6 +5,7 @@ import {
   X,
   Check,
   AlertCircle,
+  CheckCircle2,
   Calendar,
   RefreshCw,
   ChevronLeft,
@@ -510,6 +511,13 @@ function LogRow({
             <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-[10px] font-bold uppercase tracking-wider">
               <Check size={9} /> Inviata
             </span>
+          ) : log.resolved ? (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-[10px] font-bold uppercase tracking-wider"
+              title="Questa email era fallita ma è stata rinviata con successo"
+            >
+              <CheckCircle2 size={9} /> Risolto
+            </span>
           ) : (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-700 border border-red-200 rounded text-[10px] font-bold uppercase tracking-wider">
               <AlertCircle size={9} /> Fallita
@@ -536,7 +544,7 @@ function LogRow({
           {log.sender_name ?? <span className="italic">—</span>}
         </td>
         <td className="px-4 py-3 text-right whitespace-nowrap">
-          {log.status === 'failed' && (
+          {log.status === 'failed' && !log.resolved && (
             <div className="flex items-center gap-1 justify-end">
               {log.error_message && (
                 <button
@@ -558,6 +566,15 @@ function LogRow({
                 Rinvia
               </button>
             </div>
+          )}
+          {log.status === 'failed' && log.resolved && log.error_message && (
+            <button
+              type="button"
+              onClick={onToggleExpand}
+              className="px-2 py-1 text-xs font-semibold text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded"
+            >
+              {expanded ? 'Nascondi' : 'Errore originale'}
+            </button>
           )}
         </td>
       </tr>
