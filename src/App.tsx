@@ -12,6 +12,7 @@ import AdminCategories from '@/pages/AdminCategories'
 import AdminDepartments from '@/pages/AdminDepartments'
 import AdminUsers from '@/pages/AdminUsers'
 import EmailSettings from '@/pages/EmailSettings'
+import EmailLogs from '@/pages/EmailLogs'
 import EmbedSettings from '@/pages/EmbedSettings'
 import EmbedView from '@/pages/EmbedView'
 
@@ -20,11 +21,7 @@ export default function App() {
 
   return (
     <Routes>
-      {/*
-       * Rotta /embed pubblica, fuori dal flusso auth.
-       * Viene caricata in iframe dal backoffice e l'autorizzazione
-       * avviene tramite access_key nel query string.
-       */}
+      {/* Rotta /embed pubblica, fuori dal flusso auth */}
       <Route path="/embed" element={<EmbedView />} />
 
       {/* Tutto il resto è protetto da login */}
@@ -112,6 +109,14 @@ function ProtectedApp({
           element={
             <AdminGuard isAdmin={isAdmin}>
               <EmailSettings />
+            </AdminGuard>
+          }
+        />
+        <Route
+          path="/admin/email-logs"
+          element={
+            <AdminGuard isAdmin={isAdmin}>
+              <EmailLogs />
             </AdminGuard>
           }
         />
