@@ -333,9 +333,11 @@ export default function EmbedSettings() {
   }
   className="form-input w-32"
 />
-            <p className="mt-1.5 text-xs text-slate-400">
-              Vengono mostrati gli ultimi N task pubblicati (1-100).
-            </p>
+<p className="mt-1.5 text-xs text-slate-400">
+  {maxItems === 0
+    ? 'Nessun limite: vengono mostrati tutti i task visibili nell\'embed.'
+    : `Vengono mostrati gli ultimi ${maxItems} task pubblicati. Imposta 0 per non avere limiti.`}
+</p>
           </div>
         </div>
 
