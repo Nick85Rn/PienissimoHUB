@@ -323,16 +323,16 @@ export default function EmbedSettings() {
             <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
               Numero massimo di task da mostrare
             </label>
-            <input
-              type="number"
-              min={1}
-              max={100}
-              value={maxItems}
-              onChange={(e) =>
-                setMaxItems(Math.max(1, Math.min(100, parseInt(e.target.value, 10) || 30)))
-              }
-              className="form-input w-32"
-            />
+<input
+  type="number"
+  min={0}
+  max={1000}
+  value={maxItems}
+  onChange={(e) =>
+    setMaxItems(Math.max(0, Math.min(1000, parseInt(e.target.value, 10) || 0)))
+  }
+  className="form-input w-32"
+/>
             <p className="mt-1.5 text-xs text-slate-400">
               Vengono mostrati gli ultimi N task pubblicati (1-100).
             </p>
