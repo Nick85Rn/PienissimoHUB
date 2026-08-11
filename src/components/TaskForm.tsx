@@ -10,6 +10,7 @@ import {
   Trash2,
   GripVertical,
   Globe,
+  Pin,
 } from 'lucide-react'
 import { useToast } from '@/context/ToastContext'
 import { useAuth } from '@/context/AuthContext'
@@ -91,9 +92,13 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
   const [bugSeverity, setBugSeverity] = useState<BugSeverity | ''>(
     initial?.bug_severity ?? ''
   )
-  // NUOVO: visibilità embed pubblico
+  // Visibilità embed pubblico
   const [visibleInEmbed, setVisibleInEmbed] = useState<boolean>(
     initial?.visible_in_embed ?? false
+  )
+  // Pin in evidenza nell'embed (richiede visibleInEmbed = true)
+  const [pinnedInEmbed, setPinnedInEmbed] = useState<boolean>(
+    initial?.pinned_in_embed ?? false
   )
 
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([])
@@ -132,6 +137,15 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasBugfix])
 
+  // Un task non visibile nell'embed non può restare pinnato: se si
+  // toglie la spunta "visibile nell'embed", il pin si toglie da solo.
+  useEffect(() => {
+    if (!visibleInEmbed && pinnedInEmbed) {
+      setPinnedInEmbed(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleInEmbed])
+
   const toggleType = (t: TaskType) => {
     setTypes((prev) => {
       if (prev.includes(t)) {
@@ -153,7 +167,8 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
         attachments.some((a) => a.label.trim() || a.url.trim()) ||
         types.length !== 1 ||
         types[0] !== 'aggiornamento' ||
-        visibleInEmbed !== false
+        visibleInEmbed !== false ||
+        pinnedInEmbed !== false
       )
     }
     if (!initial) return false
@@ -176,6 +191,7 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
     if (bugStatus !== (initial.bug_status ?? '')) return true
     if (bugSeverity !== (initial.bug_severity ?? '')) return true
     if (visibleInEmbed !== (initial.visible_in_embed ?? false)) return true
+    if (pinnedInEmbed !== (initial.pinned_in_embed ?? false)) return true
     if (attachments.length !== existingAttachments.length) return true
     for (let i = 0; i < attachments.length; i++) {
       const a = attachments[i]
@@ -280,6 +296,7 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
       bug_severity: hasBugfix ? (bugSeverity as BugSeverity) : null,
       author_id: profile.id,
       visible_in_embed: visibleInEmbed,
+      pinned_in_embed: pinnedInEmbed,
     }
 
     try {
@@ -329,11 +346,11 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
         navigate(`/task/${taskId}`)
       }
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? `Errore durante il salvataggio: ${err.message}`
-          : 'Errore sconosciuto'
-      )
+      const rawMsg = err instanceof Error ? err.message : 'Errore sconosciuto'
+      const friendlyMsg = rawMsg.includes('Massimo 3 task pinnabili')
+        ? 'Puoi pinnare al massimo 3 task contemporaneamente. Togli il pin a un altro task prima di pinnarne uno nuovo.'
+        : `Errore durante il salvataggio: ${rawMsg}`
+      setError(friendlyMsg)
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } finally {
       setIsSubmitting(false)
@@ -553,6 +570,44 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
             </div>
           </label>
         </div>
+
+        {/* Pin in evidenza — solo se il task è visibile nell'embed */}
+        {visibleInEmbed && (
+          <div
+            className={cn(
+              'rounded-xl border p-4 transition-colors',
+              pinnedInEmbed
+                ? 'bg-amber-50/60 border-amber-200'
+                : 'bg-slate-50/40 border-slate-200'
+            )}
+          >
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={pinnedInEmbed}
+                onChange={(e) => setPinnedInEmbed(e.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500/30 shrink-0"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <Pin
+                    size={14}
+                    className={
+                      pinnedInEmbed ? 'text-amber-600' : 'text-slate-400'
+                    }
+                  />
+                  <span className="text-sm font-semibold text-slate-900">
+                    Pinna in evidenza nell'embed pubblico
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Il task comparirà sempre in cima alla lista pubblica, con
+                  uno stile evidenziato. Massimo 3 task pinnati insieme.
+                </p>
+              </div>
+            </label>
+          </div>
+        )}
 
         <Field
           label="Link e allegati"
