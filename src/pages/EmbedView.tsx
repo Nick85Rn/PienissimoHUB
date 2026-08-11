@@ -10,6 +10,7 @@ import {
   Lock,
   Search,
   Filter,
+  Pin,
 } from 'lucide-react'
 import {
   useEmbedTasks,
@@ -35,8 +36,8 @@ import {
  * Pagina embed pubblica: viene caricata in iframe dal backoffice
  * Pienissimo PRO. URL: /embed?key=ACCESS_KEY
  *
- * Include: barra di ricerca, filtri per tipo e categoria, contatore.
- * Tutto il filtraggio è client-side perché operiamo su pochi task (max 100).
+ * Include: barra di ricerca, filtri per tipo e categoria, contatore,
+ * e task pinnati sempre in cima con stile evidenziato.
  */
 export default function EmbedView() {
   const [searchParams] = useSearchParams()
@@ -48,24 +49,22 @@ export default function EmbedView() {
   const [activeType, setActiveType] = useState<string | null>(null)
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
 
-  // Calcola la lista filtrata
+  // La RPC restituisce già i pinnati per primi (pinned desc, data desc).
+  // Il filtro qui sotto preserva quell'ordine.
   const filteredTasks = useMemo(() => {
     if (!tasks) return []
     const q = search.trim().toLowerCase()
 
     return tasks.filter((t) => {
-      // Filtro tipo
       if (activeType && !t.task_types.includes(activeType)) {
         return false
       }
-      // Filtro categoria
       if (activeCategory) {
         if (activeCategory === '__none__' && t.category_name) return false
         if (activeCategory !== '__none__' && t.category_name !== activeCategory) {
           return false
         }
       }
-      // Search testo (titolo + excerpt + contenuto plain)
       if (q) {
         const inTitle = t.title.toLowerCase().includes(q)
         const inExcerpt = (t.excerpt ?? '').toLowerCase().includes(q)
@@ -77,7 +76,6 @@ export default function EmbedView() {
     })
   }, [tasks, activeType, activeCategory, search])
 
-  // Tipi presenti almeno una volta nei task caricati (per le pillole)
   const availableTypes = useMemo(() => {
     if (!tasks) return [] as string[]
     const set = new Set<string>()
@@ -87,7 +85,6 @@ export default function EmbedView() {
     return Array.from(set)
   }, [tasks])
 
-  // Categorie presenti
   const availableCategories = useMemo(() => {
     if (!tasks) return [] as { name: string; color: string | null }[]
     const map = new Map<string, string | null>()
@@ -104,7 +101,6 @@ export default function EmbedView() {
       color,
     }))
     list.sort((a, b) => a.name.localeCompare(b.name))
-    // "Senza categoria" in fondo se presente
     if (hasNone) {
       list.push({ name: '__none__', color: null })
     }
@@ -120,7 +116,6 @@ export default function EmbedView() {
     setActiveCategory(null)
   }
 
-  // -------- Stati di errore / loading / vuoto --------
   if (!accessKey) {
     return <ErrorScreen message="Chiave di accesso mancante." />
   }
@@ -178,7 +173,6 @@ export default function EmbedView() {
               )}
             </div>
 
-            {/* Pillole tipo */}
             {availableTypes.length > 1 && (
               <div className="flex flex-wrap gap-1.5">
                 <Pill
@@ -202,7 +196,6 @@ export default function EmbedView() {
               </div>
             )}
 
-            {/* Pillole categoria */}
             {availableCategories.length > 1 && (
               <div className="flex flex-wrap gap-1.5">
                 <Pill
@@ -282,13 +275,27 @@ export default function EmbedView() {
           </div>
         ) : (
           <ul className="space-y-2">
-            {filteredTasks.map((t) => (
-              <EmbedTaskItem
-                key={t.id}
-                task={t}
-                searchHighlight={search.trim()}
-                onClick={() => setSelectedTaskId(t.id)}
-              />
+            {filteredTasks.map((t, idx) => (
+              <div key={t.id}>
+                {/* Separatore tra i pinnati e il resto della lista */}
+                {idx > 0 &&
+                  filteredTasks[idx - 1]?.is_pinned &&
+                  !t.is_pinned && (
+                    <li
+                      aria-hidden="true"
+                      className="flex items-center gap-2 py-2 px-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider"
+                    >
+                      <span className="h-px flex-1 bg-slate-200" />
+                      Altri aggiornamenti
+                      <span className="h-px flex-1 bg-slate-200" />
+                    </li>
+                  )}
+                <EmbedTaskItem
+                  task={t}
+                  searchHighlight={search.trim()}
+                  onClick={() => setSelectedTaskId(t.id)}
+                />
+              </div>
             ))}
           </ul>
         )}
@@ -318,14 +325,33 @@ function EmbedTaskItem({
   onClick: () => void
 }) {
   const hasBugfix = task.task_types.includes('bugfix')
+  const pinned = task.is_pinned
+
   return (
-    <li>
+    <li className={pinned ? 'mb-2' : undefined}>
       <button
         type="button"
         onClick={onClick}
-        className="w-full text-left bg-white border border-slate-200 rounded-xl px-4 py-3.5 hover:border-pienissimo-blue/50 hover:shadow-sm transition-all"
+        className={cn(
+          'w-full text-left rounded-xl px-4 py-3.5 transition-all relative',
+          pinned
+            ? 'bg-amber-50/70 border-2 border-amber-300 hover:border-amber-400 hover:shadow-md shadow-sm'
+            : 'bg-white border border-slate-200 hover:border-pienissimo-blue/50 hover:shadow-sm'
+        )}
       >
+        {pinned && (
+          <span className="absolute -top-2 -left-2 w-6 h-6 rounded-full bg-amber-400 text-white grid place-items-center shadow-sm rotate-[-15deg]">
+            <Pin size={12} fill="white" />
+          </span>
+        )}
+
         <div className="flex items-center flex-wrap gap-1.5 mb-1.5">
+          {pinned && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-400 text-white">
+              <Pin size={9} fill="white" />
+              In evidenza
+            </span>
+          )}
           {task.task_types.map((t) => {
             const key = t as TaskType
             return (
@@ -460,6 +486,12 @@ function EmbedTaskModal({
               <div className="flex justify-between items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center flex-wrap gap-1.5 mb-2">
+                    {task.is_pinned && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-400 text-white">
+                        <Pin size={9} fill="white" />
+                        In evidenza
+                      </span>
+                    )}
                     {task.task_types.map((t) => {
                       const key = t as TaskType
                       return (
@@ -575,14 +607,12 @@ function Pill({
 
 /**
  * Evidenzia le occorrenze di `query` dentro `text`.
- * Match case-insensitive. Sicuro per uso in JSX (niente dangerouslySetInnerHTML).
  */
 function Highlight({ text, query }: { text: string; query: string }) {
   if (!query) return <>{text}</>
   const q = query.trim()
   if (!q) return <>{text}</>
 
-  // Escape regex special chars
   const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const parts = text.split(new RegExp(`(${escaped})`, 'gi'))
 
@@ -605,7 +635,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
 }
 
 // =====================================================================
-// Schermata di errore (chiave mancante/invalida/embed disabilitato)
+// Schermata di errore
 // =====================================================================
 function ErrorScreen({ message }: { message: string }) {
   return (
