@@ -102,6 +102,7 @@ export interface EmbedTask {
   category_color_class: string | null
   author_name: string | null
   task_types: string[]
+  is_pinned: boolean
 }
 
 export interface EmbedTaskDetail extends EmbedTask {
