@@ -23,10 +23,12 @@ import {
 } from '@/hooks/useTaskAttachments'
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning'
 import { useEmailSettings } from '@/hooks/useEmailSettings'
+import { usePinnedEmbedTasks, MAX_PINNED } from '@/hooks/usePinnedEmbedTasks'
 import { RichTextEditor } from '@/components/RichTextEditor'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { PublishNotifyDialog } from '@/components/PublishNotifyDialog'
 import { makeExcerpt } from '@/lib/sanitize'
+import { describeError } from '@/lib/errors'
 import { cn } from '@/lib/utils'
 import {
   type TaskWithRelations,
@@ -69,6 +71,7 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
   const { data: categories = [] } = useCategories()
   const { data: departments = [] } = useDepartments()
   const { data: emailSettings } = useEmailSettings()
+  const { data: pinnedTasks = [] } = usePinnedEmbedTasks()
   const createMutation = useCreateTask()
   const updateMutation = useUpdateTask()
   const replaceAttachments = useReplaceTaskAttachments()
@@ -92,11 +95,9 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
   const [bugSeverity, setBugSeverity] = useState<BugSeverity | ''>(
     initial?.bug_severity ?? ''
   )
-  // Visibilità embed pubblico
   const [visibleInEmbed, setVisibleInEmbed] = useState<boolean>(
     initial?.visible_in_embed ?? false
   )
-  // Pin in evidenza nell'embed (richiede visibleInEmbed = true)
   const [pinnedInEmbed, setPinnedInEmbed] = useState<boolean>(
     initial?.pinned_in_embed ?? false
   )
@@ -113,6 +114,15 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
   } | null>(null)
 
   const hasBugfix = types.includes('bugfix')
+
+  // Task già pinnati ESCLUSO quello che stiamo modificando (se in edit
+  // e già pinnato, non deve contare contro se stesso).
+  const otherPinnedTasks = pinnedTasks.filter((p) => p.id !== initial?.id)
+  const pinLimitReachedByOthers = otherPinnedTasks.length >= MAX_PINNED
+  // Checkbox disabilitata solo se il limite è raggiunto DA ALTRI e
+  // questo task non è già tra i pinnati (altrimenti non potrei
+  // nemmeno togliere il pin da lui stesso restando coerente).
+  const pinCheckboxDisabled = pinLimitReachedByOthers && !pinnedInEmbed
 
   useEffect(() => {
     if (mode === 'edit' && existingAttachments.length > 0) {
@@ -137,8 +147,7 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasBugfix])
 
-  // Un task non visibile nell'embed non può restare pinnato: se si
-  // toglie la spunta "visibile nell'embed", il pin si toglie da solo.
+  // Un task non visibile nell'embed non può restare pinnato.
   useEffect(() => {
     if (!visibleInEmbed && pinnedInEmbed) {
       setPinnedInEmbed(false)
@@ -265,6 +274,15 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
       window.scrollTo({ top: 0, behavior: 'smooth' })
       return
     }
+    // Doppia sicurezza lato client, oltre al trigger DB: il limite
+    // potrebbe essere stato raggiunto da un altro admin nel frattempo.
+    if (pinnedInEmbed && pinLimitReachedByOthers) {
+      setError(
+        `Puoi pinnare al massimo ${MAX_PINNED} task contemporaneamente. Togli il pin a un altro task prima di pinnarne uno nuovo.`
+      )
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
 
     const filledAttachments = attachments.filter(
       (a) => a.label.trim() || a.url.trim()
@@ -346,11 +364,11 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
         navigate(`/task/${taskId}`)
       }
     } catch (err) {
-      const rawMsg = err instanceof Error ? err.message : 'Errore sconosciuto'
-      const friendlyMsg = rawMsg.includes('Massimo 3 task pinnabili')
-        ? 'Puoi pinnare al massimo 3 task contemporaneamente. Togli il pin a un altro task prima di pinnarne uno nuovo.'
-        : `Errore durante il salvataggio: ${rawMsg}`
-      setError(friendlyMsg)
+      // describeError gestisce sia errori che NON sono istanze di
+      // Error (es. PostgrestError di Supabase) sia la traduzione di
+      // messaggi tecnici noti (trigger DB, vincoli, ecc.) in testo
+      // comprensibile.
+      setError(describeError(err, 'Errore durante il salvataggio. Riprova.'))
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } finally {
       setIsSubmitting(false)
@@ -576,34 +594,59 @@ export function TaskForm({ initial, mode }: TaskFormProps) {
           <div
             className={cn(
               'rounded-xl border p-4 transition-colors',
-              pinnedInEmbed
-                ? 'bg-amber-50/60 border-amber-200'
-                : 'bg-slate-50/40 border-slate-200'
+              pinCheckboxDisabled
+                ? 'bg-slate-50/70 border-slate-200 opacity-70'
+                : pinnedInEmbed
+                  ? 'bg-amber-50/60 border-amber-200'
+                  : 'bg-slate-50/40 border-slate-200'
             )}
           >
-            <label className="flex items-start gap-3 cursor-pointer">
+            <label
+              className={cn(
+                'flex items-start gap-3',
+                pinCheckboxDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
+              )}
+            >
               <input
                 type="checkbox"
                 checked={pinnedInEmbed}
+                disabled={pinCheckboxDisabled}
                 onChange={(e) => setPinnedInEmbed(e.target.checked)}
-                className="mt-1 h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500/30 shrink-0"
+                className="mt-1 h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500/30 shrink-0 disabled:cursor-not-allowed"
               />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <Pin
                     size={14}
                     className={
-                      pinnedInEmbed ? 'text-amber-600' : 'text-slate-400'
+                      pinnedInEmbed && !pinCheckboxDisabled
+                        ? 'text-amber-600'
+                        : 'text-slate-400'
                     }
                   />
                   <span className="text-sm font-semibold text-slate-900">
                     Pinna in evidenza nell'embed pubblico
                   </span>
                 </div>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  Il task comparirà sempre in cima alla lista pubblica, con
-                  uno stile evidenziato. Massimo 3 task pinnati insieme.
-                </p>
+                {pinCheckboxDisabled ? (
+                  <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                    Hai già raggiunto il limite di {MAX_PINNED} task pinnati:{' '}
+                    <strong>
+                      {otherPinnedTasks.map((t) => t.title).join(', ')}
+                    </strong>
+                    . Togli il pin a uno di questi per poterne pinnare un
+                    altro.
+                  </p>
+                ) : (
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    Il task comparirà sempre in cima alla lista pubblica, con
+                    uno stile evidenziato. Massimo {MAX_PINNED} task pinnati
+                    insieme
+                    {otherPinnedTasks.length > 0 &&
+                      ` (attualmente ${otherPinnedTasks.length}/${MAX_PINNED} occupati)`}
+                    .
+                  </p>
+                )}
               </div>
             </label>
           </div>
