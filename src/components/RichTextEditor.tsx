@@ -6,17 +6,22 @@ import { useEffect, useRef, useId, useState } from 'react'
 // Summernote è scelto per compatibilità con l'HTML prodotto dai manuali
 // Pienissimo (stesso editor, stesso markup).
 //
-// Essendo una libreria jQuery, non è un componente React nativo: viene
-// caricata dinamicamente da CDN al primo utilizzo e montata/smontata
-// manualmente su un nodo DOM tramite ref. Questo evita di aggiungere
-// jQuery/Summernote come dipendenze npm (che richiederebbero un
-// package-lock.json coerente per "npm ci" su Netlify).
+// Caricato dinamicamente da CDN (niente dipendenza npm, evita problemi
+// di package-lock.json/npm ci su Netlify).
 //
-// La toolbar espone SOLO le formattazioni ammesse dal sanitizzatore
-// HTML (src/lib/sanitize.ts: p, br, strong, em, u, s, blockquote,
-// h1-h4, ul, ol, li, a, pre). Immagini disabilitate volutamente:
-// verrebbero salvate come base64 dentro il testo, gonfiando il DB e
-// venendo comunque rimosse in visualizzazione dal sanitizzatore.
+// Toolbar allargata per supportare guide/manuali impaginati:
+// - tabelle
+// - immagini SOLO via URL esterno (mai upload/base64: disableDragAndDrop
+//   + onImageUpload no-op bloccano il caricamento di file locali; il
+//   tab "Image URL" del dialog Inserisci Immagine resta invece
+//   utilizzabile perché non passa da onImageUpload)
+// - codeview: passa dalla modalità visuale al codice HTML sorgente e
+//   viceversa, utile per incollare blocchi HTML già pronti dai manuali
+// - color: per evidenziare testo con sfondi colorati (box)
+//
+// I tag/attributi effettivamente accettati sono definiti in
+// src/lib/sanitize.ts — qui esponiamo solo pulsanti per formattazioni
+// che il sanitizzatore poi conserva davvero.
 // =====================================================================
 
 const JQUERY_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js'
@@ -52,7 +57,6 @@ function loadSummernote(): Promise<void> {
   if (loaderPromise) return loaderPromise
 
   loaderPromise = new Promise((resolve, reject) => {
-    // Già presente (es. hot reload, o secondo editor nella pagina)
     if (window.jQuery?.fn?.summernote) {
       resolve()
       return
@@ -64,7 +68,6 @@ function loadSummernote(): Promise<void> {
         if (existing) {
           existing.addEventListener('load', () => res())
           existing.addEventListener('error', () => rej(new Error(`Errore caricamento ${src}`)))
-          // Se lo script è già stato caricato in passato (cache/hot reload)
           if ((existing as HTMLScriptElement).dataset.loaded === 'true') res()
           return
         }
@@ -114,8 +117,6 @@ export function RichTextEditor({
   const domId = useId().replace(/:/g, '')
   const [loadFailed, setLoadFailed] = useState(false)
 
-  // Tiene sempre l'ultima versione di onChange senza dover
-  // reinizializzare Summernote (che perderebbe cursore/focus).
   useEffect(() => {
     onChangeRef.current = onChange
   }, [onChange])
@@ -136,29 +137,33 @@ export function RichTextEditor({
 
         $(node).summernote({
           placeholder,
-          height: 280,
-          minHeight: 200,
-          maxHeight: 600,
+          height: 320,
+          minHeight: 220,
+          maxHeight: 700,
           disableDragAndDrop: true,
           toolbar: [
             ['style', ['style']],
             ['font', ['bold', 'italic', 'underline', 'strikethrough', 'clear']],
+            ['color', ['color']],
             ['list', ['ul', 'ol']],
-            ['insert', ['link']],
+            ['table', ['table']],
+            ['insert', ['link', 'picture', 'hr']],
+            ['view', ['codeview']],
             ['edit', ['undo', 'redo']],
           ],
-          // Solo i tag di blocco ammessi dal sanitizzatore HTML
+          // Solo i tag di blocco che il sanitizzatore conserva davvero
           styleTags: ['p', 'blockquote', 'pre', 'h1', 'h2', 'h3', 'h4'],
           callbacks: {
             onChange: (contents: string) => {
               onChangeRef.current(contents)
             },
-            // Immagini disabilitate: nessun upload, nessun base64.
-            // Copre sia il bottone (non presente in toolbar) sia il
-            // drag&drop/incolla di immagini dagli appunti.
+            // Blocca SOLO l'upload di file locali (che verrebbero
+            // convertiti in base64, gonfiando il DB). L'inserimento
+            // immagini via URL esterno (tab "Image URL" nel dialog
+            // Inserisci Immagine) NON passa da questo callback e
+            // resta quindi utilizzabile.
             onImageUpload: () => {
-              // no-op volontario: le immagini non sono supportate,
-              // usa la sezione "Link e allegati" del task.
+              // no-op volontario
             },
           },
         })
@@ -179,9 +184,7 @@ export function RichTextEditor({
       }
     }
     // Init una sola volta al mount; il contenuto iniziale è quello
-    // presente al primo render (comportamento "uncontrolled", uguale
-    // a come si comportano la maggior parte degli editor WYSIWYG
-    // incapsulati in React).
+    // presente al primo render (comportamento "uncontrolled").
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -203,10 +206,11 @@ export function RichTextEditor({
 }
 
 // =====================================================================
-// CSS di override minimale: il reset di Tailwind (preflight) toglie
-// bordi/padding di default ai bottoni, rendendo la toolbar di
-// Summernote poco leggibile. Queste regole ripristinano un aspetto
-// coerente senza toccare il CSS globale del progetto.
+// CSS di override: il reset di Tailwind (preflight) toglie
+// bordi/padding di default a bottoni e input, rendendo sia la toolbar
+// sia i dialog (inserisci link/immagine/tabella) di Summernote poco
+// leggibili. Queste regole ripristinano un aspetto coerente senza
+// toccare il CSS globale del progetto.
 // =====================================================================
 const SUMMERNOTE_OVERRIDE_CSS = `
 .pienissimo-summernote .note-editor.note-frame {
@@ -248,6 +252,30 @@ const SUMMERNOTE_OVERRIDE_CSS = `
 .pienissimo-summernote .note-editable:focus {
   outline: none;
 }
+.pienissimo-summernote .note-editable table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+}
+.pienissimo-summernote .note-editable table td,
+.pienissimo-summernote .note-editable table th {
+  border: 1px solid #cbd5e1;
+  padding: 6px 10px;
+}
+.pienissimo-summernote .note-editable table th {
+  background: #f1f5f9;
+  font-weight: 600;
+}
+.pienissimo-summernote .note-editable img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.375rem;
+}
+.pienissimo-summernote .note-editable hr {
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  margin: 16px 0;
+}
 .pienissimo-summernote .note-status-output {
   display: none;
 }
@@ -263,5 +291,61 @@ const SUMMERNOTE_OVERRIDE_CSS = `
 }
 .pienissimo-summernote .note-dropdown-item:hover {
   background: #f1f5f9;
+}
+/* Dialog: Inserisci Link / Immagine / Tabella */
+.pienissimo-summernote .note-modal-content {
+  border-radius: 0.75rem;
+  padding: 16px;
+}
+.pienissimo-summernote .note-modal-title {
+  font-weight: 700;
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+.pienissimo-summernote .note-modal-body input[type="text"],
+.pienissimo-summernote .note-modal-body input[type="url"] {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  padding: 8px 10px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.pienissimo-summernote .note-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.pienissimo-summernote .note-btn-primary {
+  background: #1a65a4;
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pienissimo-summernote .note-btn-primary:hover {
+  background: #14507f;
+}
+.pienissimo-summernote .note-modal-footer .note-close {
+  background: #f1f5f9;
+  color: #475569;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+/* Codeview: textarea del sorgente HTML */
+.pienissimo-summernote .note-codable {
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-size: 12.5px;
+  padding: 14px 16px;
+  color: #0f172a;
+  background: #f8fafc;
 }
 `
