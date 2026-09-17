@@ -1,4 +1,7 @@
 import { useEffect, useRef, useId, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+import { useToast } from '@/context/ToastContext'
+import { describeError } from '@/lib/errors'
 
 // =====================================================================
 // RichTextEditor — wrapper React attorno a Summernote (jQuery)
@@ -9,15 +12,12 @@ import { useEffect, useRef, useId, useState } from 'react'
 // Caricato dinamicamente da CDN (niente dipendenza npm, evita problemi
 // di package-lock.json/npm ci su Netlify).
 //
-// Toolbar allargata per supportare guide/manuali impaginati:
-// - tabelle
-// - immagini SOLO via URL esterno (mai upload/base64: disableDragAndDrop
-//   + onImageUpload no-op bloccano il caricamento di file locali; il
-//   tab "Image URL" del dialog Inserisci Immagine resta invece
-//   utilizzabile perché non passa da onImageUpload)
-// - codeview: passa dalla modalità visuale al codice HTML sorgente e
-//   viceversa, utile per incollare blocchi HTML già pronti dai manuali
-// - color: per evidenziare testo con sfondi colorati (box)
+// Immagini: caricate su Supabase Storage (bucket pubblico "task-images",
+// vedi migration 012) quando l'utente seleziona un file dal proprio PC
+// o lo trascina/incolla nell'editor. Il file viene caricato, poi si
+// inserisce l'URL pubblico risultante — mai base64 dentro il testo.
+// Resta comunque disponibile il tab "Image URL" nel dialog per
+// incollare un link esterno già pronto.
 //
 // I tag/attributi effettivamente accettati sono definiti in
 // src/lib/sanitize.ts — qui esponiamo solo pulsanti per formattazioni
@@ -29,6 +29,10 @@ const SUMMERNOTE_JS_SRC =
   'https://cdnjs.cloudflare.com/ajax/libs/summernote/0.8.20/summernote-lite.min.js'
 const SUMMERNOTE_CSS_HREF =
   'https://cdnjs.cloudflare.com/ajax/libs/summernote/0.8.20/summernote-lite.min.css'
+
+const IMAGE_BUCKET = 'task-images'
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024 // 5 MB, allineato al bucket
 
 interface JQueryStatic {
   (selector: unknown): JQuerySummernoteInstance
@@ -48,11 +52,6 @@ declare global {
 
 let loaderPromise: Promise<void> | null = null
 
-/**
- * Carica jQuery + Summernote (JS e CSS) da CDN, una sola volta per
- * l'intera sessione della pagina, indipendentemente da quanti editor
- * vengono montati. Le chiamate successive riusano la stessa Promise.
- */
 function loadSummernote(): Promise<void> {
   if (loaderPromise) return loaderPromise
 
@@ -101,6 +100,39 @@ function loadSummernote(): Promise<void> {
   return loaderPromise
 }
 
+/**
+ * Carica un file immagine su Supabase Storage e restituisce l'URL
+ * pubblico. Valida formato e dimensione lato client (il bucket applica
+ * comunque gli stessi limiti lato server come seconda linea di difesa).
+ */
+async function uploadImageToStorage(file: File): Promise<string> {
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+    throw new Error('Formato immagine non supportato. Usa JPG, PNG, GIF o WEBP.')
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    throw new Error('Immagine troppo grande. Il limite è 5 MB.')
+  }
+
+  const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+  const path = `${crypto.randomUUID()}.${ext}`
+
+  const { error: uploadError } = await supabase.storage
+    .from(IMAGE_BUCKET)
+    .upload(path, file, {
+      cacheControl: '31536000', // 1 anno, i file hanno nomi univoci
+      upsert: false,
+      contentType: file.type,
+    })
+
+  if (uploadError) throw uploadError
+
+  const { data } = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path)
+  if (!data?.publicUrl) {
+    throw new Error('Caricamento riuscito ma URL pubblico non disponibile.')
+  }
+  return data.publicUrl
+}
+
 interface RichTextEditorProps {
   content: string
   onChange: (html: string) => void
@@ -114,12 +146,18 @@ export function RichTextEditor({
 }: RichTextEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const onChangeRef = useRef(onChange)
+  const toast = useToast()
+  const toastRef = useRef(toast)
   const domId = useId().replace(/:/g, '')
   const [loadFailed, setLoadFailed] = useState(false)
 
   useEffect(() => {
     onChangeRef.current = onChange
   }, [onChange])
+
+  useEffect(() => {
+    toastRef.current = toast
+  }, [toast])
 
   useEffect(() => {
     let cancelled = false
@@ -131,8 +169,6 @@ export function RichTextEditor({
         if (cancelled || !node) return
         const $ = window.jQuery!
 
-        // Contenuto iniziale: Summernote legge l'innerHTML del nodo
-        // target al momento dell'init.
         node.innerHTML = content || ''
 
         $(node).summernote({
@@ -140,7 +176,6 @@ export function RichTextEditor({
           height: 320,
           minHeight: 220,
           maxHeight: 700,
-          disableDragAndDrop: true,
           toolbar: [
             ['style', ['style']],
             ['font', ['bold', 'italic', 'underline', 'strikethrough', 'clear']],
@@ -151,19 +186,30 @@ export function RichTextEditor({
             ['view', ['codeview']],
             ['edit', ['undo', 'redo']],
           ],
-          // Solo i tag di blocco che il sanitizzatore conserva davvero
           styleTags: ['p', 'blockquote', 'pre', 'h1', 'h2', 'h3', 'h4'],
           callbacks: {
             onChange: (contents: string) => {
               onChangeRef.current(contents)
             },
-            // Blocca SOLO l'upload di file locali (che verrebbero
-            // convertiti in base64, gonfiando il DB). L'inserimento
-            // immagini via URL esterno (tab "Image URL" nel dialog
-            // Inserisci Immagine) NON passa da questo callback e
-            // resta quindi utilizzabile.
-            onImageUpload: () => {
-              // no-op volontario
+            // Gestisce upload da: dialog "Inserisci immagine" (tab
+            // file), drag&drop e incolla dagli appunti — Summernote
+            // instrada tutti e tre qui. Ogni file viene caricato su
+            // Supabase Storage e sostituito con l'URL pubblico
+            // risultante, mai inserito come base64.
+            onImageUpload: (files: unknown) => {
+              const fileList = files as FileList
+              Array.from(fileList).forEach((file) => {
+                uploadImageToStorage(file)
+                  .then((url) => {
+                    $(node).summernote('insertImage', url, file.name)
+                  })
+                  .catch((err) => {
+                    toastRef.current.show(
+                      describeError(err, "Errore durante il caricamento dell'immagine"),
+                      'error'
+                    )
+                  })
+              })
             },
           },
         })
@@ -179,12 +225,10 @@ export function RichTextEditor({
         try {
           $(node).summernote('destroy')
         } catch {
-          // ignora: il nodo potrebbe essere già stato rimosso dal DOM
+          // ignora
         }
       }
     }
-    // Init una sola volta al mount; il contenuto iniziale è quello
-    // presente al primo render (comportamento "uncontrolled").
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -205,13 +249,6 @@ export function RichTextEditor({
   )
 }
 
-// =====================================================================
-// CSS di override: il reset di Tailwind (preflight) toglie
-// bordi/padding di default a bottoni e input, rendendo sia la toolbar
-// sia i dialog (inserisci link/immagine/tabella) di Summernote poco
-// leggibili. Queste regole ripristinano un aspetto coerente senza
-// toccare il CSS globale del progetto.
-// =====================================================================
 const SUMMERNOTE_OVERRIDE_CSS = `
 .pienissimo-summernote .note-editor.note-frame {
   border: 1px solid #e2e8f0;
@@ -292,7 +329,6 @@ const SUMMERNOTE_OVERRIDE_CSS = `
 .pienissimo-summernote .note-dropdown-item:hover {
   background: #f1f5f9;
 }
-/* Dialog: Inserisci Link / Immagine / Tabella */
 .pienissimo-summernote .note-modal-content {
   border-radius: 0.75rem;
   padding: 16px;
@@ -340,7 +376,6 @@ const SUMMERNOTE_OVERRIDE_CSS = `
   font-weight: 600;
   cursor: pointer;
 }
-/* Codeview: textarea del sorgente HTML */
 .pienissimo-summernote .note-codable {
   font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
   font-size: 12.5px;
