@@ -32,7 +32,7 @@ const SUMMERNOTE_CSS_HREF =
 
 const IMAGE_BUCKET = 'task-images'
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024 // 5 MB, allineato al bucket
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024 // 2 MB, allineato al bucket
 
 interface JQueryStatic {
   (selector: unknown): JQuerySummernoteInstance
@@ -110,7 +110,7 @@ async function uploadImageToStorage(file: File): Promise<string> {
     throw new Error('Formato immagine non supportato. Usa JPG, PNG, GIF o WEBP.')
   }
   if (file.size > MAX_IMAGE_BYTES) {
-    throw new Error('Immagine troppo grande. Il limite è 5 MB.')
+    throw new Error('Immagine troppo grande. Il limite è 2 MB.')
   }
 
   const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
